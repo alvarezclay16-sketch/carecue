@@ -1,0 +1,252 @@
+{
+  "interactionModel": {
+    "languageModel": {
+      "invocationName": "mi pastillero",
+      "intents": [
+        {
+          "name": "LinkDeviceIntent",
+          "samples": [
+            "mi código es {code}",
+            "el código es {code}",
+            "{code}",
+            "código {code}",
+            "conectar con el código {code}"
+          ],
+          "slots": [
+            {
+              "name": "code",
+              "type": "AMAZON.FOUR_DIGIT_NUMBER"
+            }
+          ]
+        },
+        {
+          "name": "TookMedsIntent",
+          "samples": [
+            "ya me tomé las pastillas",
+            "me tomé las pastillas",
+            "ya me tomé los remedios",
+            "me tomé los remedios",
+            "ya me las tomé",
+            "ya me lo tomé",
+            "ya me la tomé",
+            "listo me tomé las pastillas",
+            "me tomé mis remedios",
+            "me tomé el {medication}",
+            "me tomé la {medication}",
+            "ya me tomé el {medication}",
+            "ya me tomé la {medication}",
+            "anota el {medication}",
+            "anota la {medication}"
+          ],
+          "slots": [
+            {
+              "name": "medication",
+              "type": "MEDICATION"
+            }
+          ]
+        },
+        {
+          "name": "DidITakeIntent",
+          "samples": [
+            "me tomé las pastillas hoy",
+            "ya me tomé las pastillas hoy",
+            "me tomé los remedios de hoy",
+            "qué me he tomado hoy",
+            "qué remedios me tomé",
+            "me tomé el {medication} hoy",
+            "ya me tomé el {medication} hoy",
+            "me tomé la {medication} hoy",
+            "ya me tomé la {medication} hoy",
+            "si me tomé el {medication}",
+            "si me tomé la {medication}"
+          ],
+          "slots": [
+            {
+              "name": "medication",
+              "type": "MEDICATION"
+            }
+          ]
+        },
+        {
+          "name": "WhatsNextIntent",
+          "samples": [
+            "qué me toca ahora",
+            "qué me toca",
+            "qué remedio me toca",
+            "qué tengo que tomar",
+            "cuál es mi próximo remedio",
+            "a qué hora es mi próxima pastilla",
+            "qué pastillas me tocan",
+            "qué me queda por hoy"
+          ]
+        },
+        {
+          "name": "RefillIntent",
+          "samples": [
+            "compré {count} {medication}",
+            "me dieron {count} {medication}",
+            "agrega {count} {medication}",
+            "traje {count} de {medication}",
+            "necesito comprar remedios",
+            "se me está acabando algo",
+            "cuántas pastillas me quedan",
+            "qué tengo que comprar"
+          ],
+          "slots": [
+            {
+              "name": "count",
+              "type": "AMAZON.NUMBER"
+            },
+            {
+              "name": "medication",
+              "type": "MEDICATION"
+            }
+          ]
+        },
+        {
+          "name": "FeelingIntent",
+          "samples": [
+            "me siento {feeling}",
+            "hoy me siento {feeling}",
+            "estoy {feeling}",
+            "me encuentro {feeling}"
+          ],
+          "slots": [
+            {
+              "name": "feeling",
+              "type": "AMAZON.SearchQuery"
+            }
+          ]
+        },
+        {
+          "name": "TellFamilyIntent",
+          "samples": [
+            "dile a mi familia {message}",
+            "dile a mi hijo {message}",
+            "dile a mi hija {message}",
+            "avísale a mi familia {message}",
+            "avísale a mi hijo {message}",
+            "mándale un mensaje a mi familia {message}"
+          ],
+          "slots": [
+            {
+              "name": "message",
+              "type": "AMAZON.SearchQuery"
+            }
+          ]
+        },
+        {
+          "name": "AMAZON.HelpIntent",
+          "samples": []
+        },
+        {
+          "name": "AMAZON.StopIntent",
+          "samples": []
+        },
+        {
+          "name": "AMAZON.CancelIntent",
+          "samples": []
+        },
+        {
+          "name": "AMAZON.NoIntent",
+          "samples": []
+        },
+        {
+          "name": "AMAZON.FallbackIntent",
+          "samples": []
+        },
+        {
+          "name": "AMAZON.NavigateHomeIntent",
+          "samples": []
+        }
+      ],
+      "types": [
+        {
+          "name": "MEDICATION",
+          "values": [
+            {
+              "name": {
+                "value": "metformina"
+              }
+            },
+            {
+              "name": {
+                "value": "losartán"
+              }
+            },
+            {
+              "name": {
+                "value": "atorvastatina"
+              }
+            },
+            {
+              "name": {
+                "value": "aspirina"
+              }
+            },
+            {
+              "name": {
+                "value": "levotiroxina"
+              }
+            },
+            {
+              "name": {
+                "value": "enalapril"
+              }
+            },
+            {
+              "name": {
+                "value": "amlodipino"
+              }
+            },
+            {
+              "name": {
+                "value": "omeprazol"
+              }
+            },
+            {
+              "name": {
+                "value": "simvastatina"
+              }
+            },
+            {
+              "name": {
+                "value": "insulina"
+              }
+            },
+            {
+              "name": {
+                "value": "warfarina"
+              }
+            },
+            {
+              "name": {
+                "value": "furosemida"
+              }
+            },
+            {
+              "name": {
+                "value": "vitamina d"
+              }
+            },
+            {
+              "name": {
+                "value": "calcio"
+              }
+            },
+            {
+              "name": {
+                "value": "la pastilla de la presión"
+              }
+            },
+            {
+              "name": {
+                "value": "la pastilla del azúcar"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

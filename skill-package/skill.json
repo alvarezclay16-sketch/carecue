@@ -1,0 +1,123 @@
+{
+  "manifest": {
+    "manifestVersion": "1.0",
+    "publishingInformation": {
+      "locales": {
+        "en-US": {
+          "name": "Care Cue",
+          "summary": "A voice medication companion for older adults and their families.",
+          "description": "Care Cue reminds you when it's time for each medicine, keeps track of what you took, stops you from taking a dose twice, and lets your family know if a dose is missed. Connect it to the Care Cue app with a four-digit code.",
+          "examplePhrases": [
+            "Alexa, open care cue",
+            "Alexa, tell care cue I took my pills",
+            "Alexa, ask care cue what's next"
+          ],
+          "keywords": [
+            "medication",
+            "reminder",
+            "pills",
+            "caregiver",
+            "elderly"
+          ],
+          "smallIconUri": "https://98-86-85-249.sslip.io/app/icon-108.png",
+          "largeIconUri": "https://98-86-85-249.sslip.io/app/icon-512.png"
+        },
+        "es-US": {
+          "name": "Mi Pastillero",
+          "summary": "Un compañero de voz para los remedios de los adultos mayores y su familia.",
+          "description": "Mi Pastillero te avisa cuando toca cada remedio, anota lo que te tomaste, evita que te tomes una dosis dos veces y le avisa a tu familia si se te pasa una. Conéctalo a la app Care Cue con un código de cuatro números.",
+          "examplePhrases": [
+            "Alexa, abre mi pastillero",
+            "Alexa, dile a mi pastillero que ya me tomé las pastillas",
+            "Alexa, pregúntale a mi pastillero qué me toca"
+          ],
+          "keywords": [
+            "remedios",
+            "pastillas",
+            "recordatorio",
+            "adulto mayor",
+            "cuidador"
+          ],
+          "smallIconUri": "https://98-86-85-249.sslip.io/app/icon-108.png",
+          "largeIconUri": "https://98-86-85-249.sslip.io/app/icon-512.png"
+        },
+        "es-MX": {
+          "name": "Mi Pastillero",
+          "summary": "Un compañero de voz para los remedios de los adultos mayores y su familia.",
+          "description": "Mi Pastillero te avisa cuando toca cada remedio, anota lo que te tomaste, evita que te tomes una dosis dos veces y le avisa a tu familia si se te pasa una. Conéctalo a la app Care Cue con un código de cuatro números.",
+          "examplePhrases": [
+            "Alexa, abre mi pastillero",
+            "Alexa, dile a mi pastillero que ya me tomé las pastillas",
+            "Alexa, pregúntale a mi pastillero qué me toca"
+          ],
+          "keywords": [
+            "remedios",
+            "pastillas",
+            "recordatorio",
+            "adulto mayor",
+            "cuidador"
+          ],
+          "smallIconUri": "https://98-86-85-249.sslip.io/app/icon-108.png",
+          "largeIconUri": "https://98-86-85-249.sslip.io/app/icon-512.png"
+        },
+        "es-ES": {
+          "name": "Mi Pastillero",
+          "summary": "Un compañero de voz para los remedios de los adultos mayores y su familia.",
+          "description": "Mi Pastillero te avisa cuando toca cada remedio, anota lo que te tomaste, evita que te tomes una dosis dos veces y le avisa a tu familia si se te pasa una. Conéctalo a la app Care Cue con un código de cuatro números.",
+          "examplePhrases": [
+            "Alexa, abre mi pastillero",
+            "Alexa, dile a mi pastillero que ya me tomé las pastillas",
+            "Alexa, pregúntale a mi pastillero qué me toca"
+          ],
+          "keywords": [
+            "remedios",
+            "pastillas",
+            "recordatorio",
+            "adulto mayor",
+            "cuidador"
+          ],
+          "smallIconUri": "https://98-86-85-249.sslip.io/app/icon-108.png",
+          "largeIconUri": "https://98-86-85-249.sslip.io/app/icon-512.png"
+        }
+      },
+      "isAvailableWorldwide": true,
+      "testingInstructions": "Open the Care Cue web app, create a household, tap 'Connect Alexa' and say the 4-digit code to the skill.",
+      "distributionCountries": []
+    },
+    "apis": {
+      "custom": {
+        "endpoint": {
+          "uri": "https://98-86-85-249.sslip.io/alexa",
+          "sslCertificateType": "Trusted"
+        },
+        "interfaces": []
+      }
+    },
+    "permissions": [
+      {
+        "name": "alexa::alerts:reminders:skill:readwrite"
+      }
+    ],
+    "privacyAndCompliance": {
+      "allowsPurchases": false,
+      "usesPersonalInfo": false,
+      "isChildDirected": false,
+      "isExportCompliant": true,
+      "containsAds": false,
+      "locales": {
+        "en-US": {
+          "privacyPolicyUrl": "https://github.com/alvarezclay16-sketch/carecue#privacy"
+        },
+        "es-US": {
+          "privacyPolicyUrl": "https://github.com/alvarezclay16-sketch/carecue#privacy"
+        },
+        "es-MX": {
+          "privacyPolicyUrl": "https://github.com/alvarezclay16-sketch/carecue#privacy"
+        },
+        "es-ES": {
+          "privacyPolicyUrl": "https://github.com/alvarezclay16-sketch/carecue#privacy"
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,248 @@
+{
+  "interactionModel": {
+    "languageModel": {
+      "invocationName": "care cue",
+      "intents": [
+        {
+          "name": "LinkDeviceIntent",
+          "samples": [
+            "my code is {code}",
+            "the code is {code}",
+            "{code}",
+            "code {code}",
+            "connect with code {code}",
+            "link code {code}"
+          ],
+          "slots": [
+            {
+              "name": "code",
+              "type": "AMAZON.FOUR_DIGIT_NUMBER"
+            }
+          ]
+        },
+        {
+          "name": "TookMedsIntent",
+          "samples": [
+            "I took my pills",
+            "I took my medicine",
+            "I took my medication",
+            "I took them",
+            "I took it",
+            "I've taken my pills",
+            "done with my pills",
+            "I just took my pills",
+            "I took my {medication}",
+            "I took the {medication}",
+            "I just took my {medication}",
+            "log my {medication}",
+            "I've taken my {medication}"
+          ],
+          "slots": [
+            {
+              "name": "medication",
+              "type": "MEDICATION"
+            }
+          ]
+        },
+        {
+          "name": "DidITakeIntent",
+          "samples": [
+            "did I take my pills",
+            "did I take my medicine",
+            "did I already take my pills",
+            "have I taken my pills",
+            "what did I take today",
+            "did I take my {medication}",
+            "did I already take my {medication}",
+            "have I taken my {medication}",
+            "did I take the {medication}"
+          ],
+          "slots": [
+            {
+              "name": "medication",
+              "type": "MEDICATION"
+            }
+          ]
+        },
+        {
+          "name": "WhatsNextIntent",
+          "samples": [
+            "what's next",
+            "what do I take now",
+            "what medicine is next",
+            "what do I need to take",
+            "when is my next pill",
+            "what pills do I take now",
+            "what's left for today",
+            "what do I have to take"
+          ]
+        },
+        {
+          "name": "RefillIntent",
+          "samples": [
+            "I got {count} more {medication}",
+            "I picked up {count} {medication}",
+            "add {count} {medication}",
+            "I bought {count} {medication}",
+            "do I need a refill",
+            "am I running out of anything",
+            "how many pills do I have left",
+            "what do I need to buy"
+          ],
+          "slots": [
+            {
+              "name": "count",
+              "type": "AMAZON.NUMBER"
+            },
+            {
+              "name": "medication",
+              "type": "MEDICATION"
+            }
+          ]
+        },
+        {
+          "name": "FeelingIntent",
+          "samples": [
+            "I feel {feeling}",
+            "I'm feeling {feeling}",
+            "today I feel {feeling}",
+            "I am feeling {feeling}"
+          ],
+          "slots": [
+            {
+              "name": "feeling",
+              "type": "AMAZON.SearchQuery"
+            }
+          ]
+        },
+        {
+          "name": "TellFamilyIntent",
+          "samples": [
+            "tell my family {message}",
+            "tell my son {message}",
+            "tell my daughter {message}",
+            "send a message to my family saying {message}",
+            "let my family know {message}"
+          ],
+          "slots": [
+            {
+              "name": "message",
+              "type": "AMAZON.SearchQuery"
+            }
+          ]
+        },
+        {
+          "name": "AMAZON.HelpIntent",
+          "samples": []
+        },
+        {
+          "name": "AMAZON.StopIntent",
+          "samples": []
+        },
+        {
+          "name": "AMAZON.CancelIntent",
+          "samples": []
+        },
+        {
+          "name": "AMAZON.NoIntent",
+          "samples": []
+        },
+        {
+          "name": "AMAZON.FallbackIntent",
+          "samples": []
+        },
+        {
+          "name": "AMAZON.NavigateHomeIntent",
+          "samples": []
+        }
+      ],
+      "types": [
+        {
+          "name": "MEDICATION",
+          "values": [
+            {
+              "name": {
+                "value": "metformin"
+              }
+            },
+            {
+              "name": {
+                "value": "losartan"
+              }
+            },
+            {
+              "name": {
+                "value": "atorvastatin"
+              }
+            },
+            {
+              "name": {
+                "value": "aspirin"
+              }
+            },
+            {
+              "name": {
+                "value": "levothyroxine"
+              }
+            },
+            {
+              "name": {
+                "value": "lisinopril"
+              }
+            },
+            {
+              "name": {
+                "value": "amlodipine"
+              }
+            },
+            {
+              "name": {
+                "value": "omeprazole"
+              }
+            },
+            {
+              "name": {
+                "value": "simvastatin"
+              }
+            },
+            {
+              "name": {
+                "value": "insulin"
+              }
+            },
+            {
+              "name": {
+                "value": "warfarin"
+              }
+            },
+            {
+              "name": {
+                "value": "furosemide"
+              }
+            },
+            {
+              "name": {
+                "value": "vitamin d"
+              }
+            },
+            {
+              "name": {
+                "value": "calcium"
+              }
+            },
+            {
+              "name": {
+                "value": "my blood pressure pill"
+              }
+            },
+            {
+              "name": {
+                "value": "my diabetes pill"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

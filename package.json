@@ -1,0 +1,27 @@
+{
+  "name": "carecue",
+  "version": "0.1.0",
+  "description": "CareCue: a voice-first medication companion for older adults, as an Alexa+ MCP server",
+  "main": "index.js",
+  "scripts": {
+    "test": "node tests/smoke.ts",
+    "start": "node --env-file-if-exists=.env src/server.ts"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "MIT",
+  "type": "module",
+  "dependencies": {
+    "@anthropic-ai/bedrock-sdk": "^0.34.4",
+    "@anthropic-ai/sdk": "^0.133.0",
+    "@modelcontextprotocol/sdk": "^1.32.1",
+    "ask-sdk-core": "^2.14.0",
+    "ask-sdk-express-adapter": "^2.14.0",
+    "ask-sdk-model": "^1.86.0",
+    "express": "^5.3.0",
+    "zod": "^4.6.5"
+  },
+  "engines": {
+    "node": ">=22.13"
+  }
+}

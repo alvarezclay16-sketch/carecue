@@ -1,0 +1,9 @@
+{
+  "appId": "app.carecue.mobile",
+  "appName": "CareCue",
+  "webDir": "www",
+  "android": { "allowMixedContent": false },
+  "plugins": {
+    "LocalNotifications": { "smallIcon": "ic_stat_icon_config_sample", "iconColor": "#1F4E5F" }
+  }
+}
