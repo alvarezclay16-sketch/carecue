@@ -43,3 +43,17 @@ Kept while building CareCue for the Alexa+ track. Each entry: task, steps, expec
 - **Task:** Confirm the server speaks protocol 2025-11-25 over Streamable HTTP.
 - **Actual:** Worked out of the box with `@modelcontextprotocol/sdk` 1.32.1 (`LATEST_PROTOCOL_VERSION = '2025-11-25'`); the smoke test logs the negotiated version.
 - **Severity:** None (positive note).
+
+### 6. Skill manifest category
+
+- **Task:** Create the skill with `ask smapi create-skill-for-vendor`.
+- **Actual:** `INVALID_ENUM_VALUE` for `publishingInformation.category: "HEALTH_AND_FITNESS"`; the error doesn't list the allowed values.
+- **Severity:** Low. **Workaround:** removed the category (set it later in the console).
+- **Suggestion:** Include the allowed enum values in the violation message.
+
+### 7. `ask configure` without an interactive terminal
+
+- **Task:** Log in the ASK CLI from a scripted environment.
+- **Actual:** Step 1 (LWA login) succeeds, then the optional "link your AWS account?" prompt crashes with `readline was closed` when stdin isn't a TTY.
+- **Severity:** Low. **Workaround:** the profile from step 1 is saved and works.
+- **Suggestion:** A `--no-aws` flag (or skip the prompt when stdin isn't a TTY).
