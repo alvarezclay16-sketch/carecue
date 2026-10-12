@@ -19,12 +19,14 @@ import {
   newPairCode,
   type Link,
 } from "./households.ts";
+import { assertBootSafe, CANNED, describe, gateCreate, gateMcp, gateModelTurn } from "./limits.ts";
 import { atLocal, isShifted, localDate, localTime, now, resetClock, setNow, spokenTime } from "./clock.ts";
 
 const PORT = Number(process.env.PORT ?? 8787);
 const HOST = process.env.HOST ?? "127.0.0.1";
 const DEMO = process.env.CARECUE_DEMO !== "0";
 
+assertBootSafe(); // CARECUE_EVAL together with CARECUE_PUBLIC refuses to start
 seedDemo();
 
 const app = express();
@@ -40,6 +42,11 @@ app.get("/health", (_req, res) => res.json({ ok: true }));
 
 // ---------- MCP ----------
 app.post("/mcp", (req, res) => {
+  const wait = gateMcp(req);
+  if (wait) {
+    res.set("Retry-After", String(wait));
+    return void res.status(429).json({ jsonrpc: "2.0", error: { code: -32029, message: "Too many requests. Please slow down." }, id: null });
+  }
   handleMcp(req, res).catch((err) => {
     console.error("[mcp]", err);
     if (!res.headersSent) res.status(500).json({ jsonrpc: "2.0", error: { code: -32603, message: "Internal error" }, id: null });
@@ -58,8 +65,26 @@ const hasModelCredentials = () =>
     process.env.ANTHROPIC_AUTH_TOKEN
   );
 
-async function agentReply(res: Response, patientId: number, conversationId: string, text: string) {
+/** Was this turn spoken in Spanish? (Only picks the language of the few canned sentences.) */
+const wantsSpanish = (text: string, patientId: number) =>
+  /[¿¡ñáéíóú]|\b(qué|me|mi|tomé|pastilla|remedio)\b/i.test(text) || care.getPatient(patientId).preferred_language === "es";
+
+/**
+ * The only door to the model for chat. Every route that can reach a paid model goes through here,
+ * so the spend guard (src/limits.ts) sees it first. tokenKey: the app token's id, for the per-token cap.
+ */
+async function agentReply(req: Request, res: Response, patientId: number, conversationId: string, text: string, tokenKey?: string) {
   if (!text) return void res.status(400).json({ error: "Say something first." });
+  const es = wantsSpanish(text, patientId);
+  const verdict = gateModelTurn(req, text, tokenKey);
+  if (!verdict.ok) {
+    // Over a limit or paused: answer at once, no model call. A person in trouble still gets the emergency number.
+    const reply = verdict.urgent
+      ? (await import("./agent.ts")).fallbackReply("unavailable", es, care.emergencyNumber(patientId))
+      : CANNED[es ? "es" : "en"];
+    return void res.json({ reply, toolCalls: [], limited: true, ...(verdict.urgent ? { degraded: true } : {}) });
+  }
+  if (process.env.CARECUE_FAKE_AGENT === "1") return void res.json({ reply: "[fake agent] ok", toolCalls: [] }); // tests only
   if (!hasModelCredentials()) return void res.status(503).json({ error: "The voice assistant isn't configured yet." });
   try {
     const { chat } = await import("./agent.ts");
@@ -68,10 +93,15 @@ async function agentReply(res: Response, patientId: number, conversationId: stri
     // Never leave a voice device silent: answer with a safe spoken sentence instead of an error body.
     console.error("[agent]", err);
     const { fallbackReply } = await import("./agent.ts");
-    const es = /[¿¡ñáéíóú]|\b(qué|me|mi|tomé|pastilla|remedio)\b/i.test(text) || care.getPatient(patientId).preferred_language === "es";
     res.json({ reply: fallbackReply("unavailable", es, care.emergencyNumber(patientId)), toolCalls: [], degraded: true });
   }
 }
+
+app.get("/api/limits", (req, res) => {
+  const h = req.headers.authorization;
+  const link = linkFromAppToken(h?.startsWith("Bearer ") ? h.slice(7) : undefined);
+  res.json(describe(req, link ? `app-${link.id}` : undefined));
+});
 
 // ---------- mobile app API ----------
 const appApi = express.Router();
@@ -109,6 +139,11 @@ appApi.post(
   wrap((req, res) => {
     const b = req.body ?? {};
     if (!b.patientName || !b.caregiverName) return void res.status(400).json({ error: "Names are required." });
+    const wait = gateCreate(req);
+    if (wait) {
+      res.set("Retry-After", String(wait));
+      return void res.status(429).json({ error: "Too many new households from this address. Please try again later.", retry_after_s: wait });
+    }
     const { patientId, token } = createHousehold({
       patientName: String(b.patientName),
       language: String(b.language ?? "es"),
@@ -254,14 +289,14 @@ appApi.post(
 appApi.post(
   "/chat",
   auth(),
-  wrap((req, res) => agentReply(res, req.link.patient_id, `app-${req.link.id}`, String(req.body?.text ?? "").trim())),
+  wrap((req, res) => agentReply(req, res, req.link.patient_id, `app-${req.link.id}`, String(req.body?.text ?? "").trim(), `app-${req.link.id}`)),
 );
 
 app.use("/api/app", appApi);
 
 // ---------- web simulator (demo household only) ----------
 app.post("/api/chat", (req, res) =>
-  agentReply(res, demoPatientId(), String(req.body?.conversationId ?? "device"), String(req.body?.text ?? "").trim()),
+  agentReply(req, res, demoPatientId(), String(req.body?.conversationId ?? "device"), String(req.body?.text ?? "").trim()),
 );
 
 app.post("/api/chat/reset", async (req, res) => {
@@ -321,6 +356,9 @@ app.listen(PORT, HOST, () => {
   console.log(`  Alexa skill:     /alexa (signature checks ${process.env.ALEXA_SKIP_VERIFY === "1" ? "OFF" : "on"})`);
   console.log(`  Mobile app:      /app`);
   console.log(`  Simulator:       /`);
+  console.log(`  Spend guard:     ${process.env.CARECUE_PUBLIC === "1" ? "ON (public instance)" : "off (local)"}`);
+  if (process.env.CARECUE_PUBLIC !== "1" && !["127.0.0.1", "::1", "localhost"].includes(HOST))
+    console.warn("  WARNING: listening on a non-loopback address without CARECUE_PUBLIC=1; model routes are not rate limited.");
   console.log(`  Model:           ${hasModelCredentials() ? "credentials found" : "no credentials (assistant disabled)"}`);
   if (hasModelCredentials() && process.env.CARECUE_DEMO !== "0")
     import("./agent.ts").then((a) => a.warmUp(demoPatientId())).catch((e) => console.error("[warm-up]", (e as Error).message));

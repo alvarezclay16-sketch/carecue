@@ -90,6 +90,7 @@ npm test                  # end-to-end check of the MCP server (in another termi
 - **MCP endpoint:** `http://localhost:8787/mcp` — point Alexa+ or any MCP client (MCP Inspector, Claude Desktop, Kiro) at it. Set `CARECUE_MCP_TOKEN` to require a bearer token.
 - **Simulator:** open `http://localhost:8787` in Chrome, press the mic (or space bar) and talk. The **demo clock** buttons at the bottom move time to 8:01 AM, 8:50 PM, etc. so the whole day plays out in two minutes.
 - **Real push alerts:** set `CARECUE_ALERT_WEBHOOK=https://ntfy.sh/<your-private-topic>` and install the ntfy app on the caregiver's phone.
+- **Public instance / spend guard:** `CARECUE_PUBLIC=1` turns on `src/limits.ts` for every route that can reach a model (`/api/chat`, `/api/app/chat`), for household creation and for `/mcp`. Over a limit the chat answers `limited: true` with a canned sentence and no model call; emergency text still gets through. Tune with `CARECUE_LIMIT_*` env vars, stop all model traffic with `CARECUE_AGENT_PAUSED=1` or a `data/PAUSE` file, see your own remaining turns at `GET /api/limits`. `CARECUE_EVAL=1` (local safety runs) refuses to boot together with `CARECUE_PUBLIC=1`. Test: `npm run test:limits`.
 
 ## Works today on any Alexa, and on Android
 

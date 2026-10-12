@@ -4,6 +4,10 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
+import { mkdtempSync, readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 
 const base = process.argv[2] ?? "http://localhost:8787";
 const post = (p: string, body: unknown) =>
@@ -16,6 +20,18 @@ const call = async (name: string, args: Record<string, unknown> = {}) => {
   const r = await client.callTool({ name, arguments: args });
   return JSON.parse((r.content as Array<{ text: string }>)[0].text);
 };
+
+// The two safety prompts are byte-frozen (7 QA rounds). Import them with a throwaway DB so nothing real is touched.
+{
+  process.env.CARECUE_DB = path.join(mkdtempSync(path.join(tmpdir(), "carecue-frozen-")), "t.db");
+  const frozen = JSON.parse(readFileSync(new URL("./frozen.json", import.meta.url), "utf8"));
+  const sha = (s: string) => createHash("sha256").update(s, "utf8").digest("hex");
+  const { SERVER_INSTRUCTIONS } = await import("../src/mcp.ts");
+  const { SYSTEM } = await import("../src/agent.ts");
+  assert.equal(sha(SERVER_INSTRUCTIONS), frozen.SERVER_INSTRUCTIONS, "SERVER_INSTRUCTIONS changed: it is frozen");
+  assert.equal(sha(SYSTEM), frozen.SYSTEM, "SYSTEM changed: it is frozen");
+  console.log("frozen prompts: hashes match");
+}
 
 await post("/api/reset", {});
 console.log("protocol:", transport.protocolVersion ?? "(negotiated)");

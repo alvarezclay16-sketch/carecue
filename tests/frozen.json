@@ -1,0 +1,5 @@
+{
+  "_note": "sha256 (utf-8) of the evaluated SERVER_INSTRUCTIONS (src/mcp.ts) and SYSTEM (src/agent.ts). Both strings are the product of 7 safety QA rounds: do not edit them. Update these hashes only after a new safety round, in the same commit as the prompt change.",
+  "SERVER_INSTRUCTIONS": "30d7ac866b8af2ffd2787b27d1c3a2d758b00c33ad70061d7d6eb63d1726cbd6",
+  "SYSTEM": "79f8032d88757a9d0362f1fa1647e777f6cbad32c6e50a8eb2aa770b60ec2824"
+}
