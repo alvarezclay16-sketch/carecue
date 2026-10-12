@@ -1,7 +1,7 @@
 # Devpost submission (draft)
 
 **Project name:** CareCue
-**Tagline:** A voice-first medication companion for older adults, on Alexa+ and every Echo.
+**Tagline:** A voice-first medication companion for older adults, built for Alexa+, with an Alexa skill for Echo devices.
 **Track:** Alexa+ · **Mini challenges:** AWS Builder, Open Source
 **Repo:** https://github.com/alvarezclay16-sketch/carecue (MIT)
 **Live server:** https://98-86-85-249.sslip.io (simulator at `/`, mobile web app at `/app`, MCP at `/mcp`, Alexa endpoint at `/alexa`)
