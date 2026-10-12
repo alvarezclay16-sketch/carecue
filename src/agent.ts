@@ -2,8 +2,8 @@
 // Claude (Amazon Bedrock, or the Claude API as a fallback) + the CareCue MCP server as its only tools.
 
 import Anthropic from "@anthropic-ai/sdk";
-import { AnthropicBedrockMantle } from "@anthropic-ai/bedrock-sdk";
-import { BetaFallbackState, betaRefusalFallbackMiddleware } from "@anthropic-ai/sdk/lib/middleware";
+import AnthropicBedrock from "@anthropic-ai/bedrock-sdk";
+import { BetaFallbackState } from "@anthropic-ai/sdk/lib/middleware";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { SERVER_INSTRUCTIONS } from "./mcp.ts";
@@ -15,28 +15,181 @@ import { buildToolTrace, type ToolAnnotations, type ToolSource, type ToolTrace }
 
 export type { ToolSource, ToolTrace } from "./trace.ts";
 
-// Explicit CARECUE_PROVIDER wins; otherwise a Claude API key is preferred, then AWS credentials.
-const useBedrock =
-  process.env.CARECUE_PROVIDER === "bedrock" ||
-  (!process.env.CARECUE_PROVIDER &&
-    !process.env.ANTHROPIC_API_KEY &&
-    !!(process.env.AWS_BEARER_TOKEN_BEDROCK || process.env.AWS_ACCESS_KEY_ID || process.env.AWS_PROFILE));
+// ---------- providers: Amazon Bedrock (InvokeModel) and the Claude API, with failover ----------
+//
+// CARECUE_PROVIDER = bedrock | anthropic | auto.
+//   auto: Bedrock first (needs AWS_BEARER_TOKEN_BEDROCK or AWS credentials), the Claude API as failover
+//         (needs ANTHROPIC_API_KEY). With only one of the two configured, that one answers alone.
+//   bedrock / anthropic: that provider only, no failover.
+//   unset: unchanged from before Bedrock: the Claude API when its key exists, else Bedrock; and "auto" once CARECUE_MODEL is set.
+// CARECUE_MODEL = Bedrock inference-profile id; CARECUE_FALLBACK_MODEL = Claude API model (default claude-opus-5-5).
 
-export const provider = useBedrock ? "Amazon Bedrock" : "Claude API";
+type Prov = "bedrock" | "anthropic";
+const REGION = process.env.AWS_REGION ?? "us-east-1";
+const haveBedrock = () => !!(process.env.AWS_BEARER_TOKEN_BEDROCK || process.env.AWS_ACCESS_KEY_ID || process.env.AWS_PROFILE);
+const haveAnthropic = () => !!(process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN);
+const LABEL: Record<Prov, string> = { bedrock: "Amazon Bedrock", anthropic: "Claude API" };
+export const FAILOVER_LABEL = "Claude API (failover)";
 
-// On Bedrock, refusals fall back client-side; on the Claude API the server routes them ("fallbacks: default").
-const client: Anthropic = useBedrock
-  ? (new AnthropicBedrockMantle({
-      awsRegion: process.env.AWS_REGION ?? "us-east-1",
-      middleware: [betaRefusalFallbackMiddleware([{ model: "anthropic.claude-opus-4-8" }])],
-    }) as unknown as Anthropic)
-  : new Anthropic({ maxRetries: 4 });
+const mode = process.env.CARECUE_PROVIDER ?? (process.env.CARECUE_MODEL ? "auto" : "unset");
+const primary: Prov =
+  mode === "bedrock" ? "bedrock"
+  : mode === "anthropic" ? "anthropic"
+  : mode === "auto" ? (haveBedrock() || !haveAnthropic() ? "bedrock" : "anthropic")
+  : haveAnthropic() ? "anthropic" : "bedrock";
+const fallback: Prov | null = mode === "auto" && primary === "bedrock" && haveAnthropic() ? "anthropic" : null;
 
-const MODEL = process.env.CARECUE_MODEL ?? (useBedrock ? "anthropic.claude-opus-5-5" : "claude-opus-5-5");
+const BEDROCK_MODEL = process.env.CARECUE_MODEL ?? "us.anthropic.claude-opus-4-6-v1";
+const ANTHROPIC_MODEL = (primary === "anthropic" ? process.env.CARECUE_MODEL : undefined) ?? process.env.CARECUE_FALLBACK_MODEL ?? "claude-opus-5-5";
+const modelOf = (p: Prov) => (p === "bedrock" ? BEDROCK_MODEL : ANTHROPIC_MODEL);
 
-/** Provider and model id behind every turn. The one place that says which model is in use (failover extends it). */
+/** "us.anthropic.claude-opus-4-6-v1" -> "Claude Opus 4.6" (what the topbar shows). */
+export function modelName(id: string): string {
+  const m = /claude-(opus|sonnet|haiku)-(\d+)-(\d+)/.exec(id);
+  return m ? `Claude ${m[1][0].toUpperCase()}${m[1].slice(1)} ${m[2]}.${m[3]}` : id;
+}
+
+const FAILOVER_AFTER = 3; // consecutive primary failures before it is skipped
+const BREAKER_MS = 60_000;
+const PRIMARY_TIMEOUT_MS = 12_000;
+
+const clients: Partial<Record<Prov, Anthropic>> = {};
+function clientFor(p: Prov): Anthropic {
+  // Bedrock: bedrock-runtime InvokeModel through AnthropicBedrock (reads AWS_BEARER_TOKEN_BEDROCK by itself).
+  // Retries and timeout are set per call, because the primary and the fallback are treated differently.
+  return (clients[p] ??=
+    p === "bedrock" ? (new AnthropicBedrock({ awsRegion: REGION }) as unknown as Anthropic) : new Anthropic());
+}
+
+export type Receipt = { provider: string; model: string; region: string | null; request_id: string | null; latency_ms: number; at: string };
+let lastReceipt: Receipt | null = null;
+let lastAnswered: { provider: string; model: string } | null = null;
+let failoverCount = 0;
+let consecutiveFails = 0;
+let breakerUntil = 0;
+
+/** What /api/model reports: which model answers, how often the fallback had to, and the last real request id. */
+export function modelStatus() {
+  const info = modelInfo();
+  return {
+    provider: info.provider,
+    model: info.id,
+    model_name: modelName(info.id),
+    region: info.provider === LABEL.bedrock ? REGION : null,
+    failover_count: failoverCount,
+    configured: { primary: LABEL[primary], model: modelOf(primary), fallback: fallback ? { provider: LABEL[fallback], model: modelOf(fallback) } : null },
+    breaker_open: Date.now() < breakerUntil,
+    ...(lastReceipt ? { last_receipt: lastReceipt } : {}),
+  };
+}
+
+/** Provider and model id behind the latest turn (before any call: the configured primary). */
 export function modelInfo(): { provider: string; id: string } {
-  return { provider, id: MODEL };
+  return lastAnswered ? { provider: lastAnswered.provider, id: lastAnswered.model } : { provider: LABEL[primary], id: modelOf(primary) };
+}
+
+/** Thinking blocks are signed per provider: a copy of the history without them is what crosses over. */
+function stripThinking(messages: Anthropic.MessageParam[]): Anthropic.MessageParam[] {
+  const out: Anthropic.MessageParam[] = [];
+  for (const m of messages) {
+    if (m.role !== "assistant" || !Array.isArray(m.content)) {
+      out.push(m);
+      continue;
+    }
+    const content = m.content.filter((b) => b.type !== "thinking" && b.type !== "redacted_thinking");
+    if (content.length) out.push({ ...m, content });
+  }
+  return out;
+}
+
+/** Errors that mean "this provider cannot answer now", as opposed to a bad request that would fail anywhere. */
+function providerDown(err: unknown): boolean {
+  const e = err as { status?: number; name?: string; message?: string };
+  if (typeof e.status !== "number") return /Connection|Timeout|Abort|fetch failed|ECONN|ENOTFOUND|socket/i.test(`${e.name} ${e.message}`);
+  if (e.status === 429 || e.status >= 500 || [401, 403, 404].includes(e.status)) return true;
+  return e.status === 400 && /model/i.test(e.message ?? "") && /(identifier|not (found|available|supported)|invalid|access)/i.test(e.message ?? "");
+}
+
+export type ModelCall = {
+  system: Anthropic.TextBlockParam[];
+  tools: Anthropic.Tool[];
+  messages: Anthropic.MessageParam[];
+  maxTokens: number;
+  fallbackState?: BetaFallbackState; // Claude API server-side refusal fallback
+};
+export type Via = { provider: string; model: string; failover: boolean };
+type TurnCtx = { failedOver: boolean };
+
+async function callOne(p: Prov, a: ModelCall, failover: boolean): Promise<{ response: Anthropic.Message; via: Via }> {
+  const model = modelOf(p);
+  const opts = failover || !fallback ? { timeout: 60_000, maxRetries: 2 } : { timeout: PRIMARY_TIMEOUT_MS, maxRetries: 1 };
+  const messages = p === "bedrock" || failover ? stripThinking(a.messages) : a.messages;
+  const t = Date.now();
+  let r: { data: unknown; response: Response };
+  if (p === "bedrock") {
+    // Plain messages.create: no betas, fallbacks or output_config on InvokeModel.
+    r = await clientFor(p).messages
+      .create({ model, max_tokens: a.maxTokens, system: a.system, tools: a.tools, messages }, opts)
+      .withResponse();
+  } else {
+    r = await clientFor(p).beta.messages
+      .create(
+        {
+          model,
+          max_tokens: a.maxTokens,
+          system: a.system,
+          tools: a.tools,
+          messages,
+          output_config: { effort: "low" },
+          betas: ["server-side-fallback-2026-07-01"],
+          fallbacks: "default",
+        } as Anthropic.Beta.MessageCreateParamsNonStreaming,
+        { ...opts, fallbackState: a.fallbackState } as Anthropic.RequestOptions,
+      )
+      .withResponse();
+  }
+  const provider = failover ? FAILOVER_LABEL : LABEL[p];
+  const h = r.response.headers;
+  lastReceipt = {
+    provider,
+    model,
+    region: p === "bedrock" ? REGION : null,
+    request_id: (p === "bedrock" ? h.get("x-amzn-requestid") : h.get("request-id")) ?? h.get("x-amzn-requestid") ?? h.get("request-id"),
+    latency_ms: Date.now() - t,
+    at: new Date().toISOString(),
+  };
+  lastAnswered = { provider, model };
+  return { response: r.data as Anthropic.Message, via: { provider, model, failover } };
+}
+
+/**
+ * The one door to the model. Primary first (12 s, one retry); when it cannot answer, the same turn goes to the
+ * other provider with a thinking-free copy of the history. Three failures in a row park the primary for 60 s.
+ */
+export async function callModel(a: ModelCall, turn: TurnCtx = { failedOver: false }): Promise<{ response: Anthropic.Message; via: Via }> {
+  const parked = Date.now() < breakerUntil;
+  if (!fallback || !parked) {
+    try {
+      if (fallback && process.env.CARECUE_EVAL === "1" && process.env.CARECUE_FAKE_PRIMARY_FAIL === "1")
+        throw Object.assign(new Error("429 (CARECUE_FAKE_PRIMARY_FAIL)"), { status: 429 });
+      const r = await callOne(primary, a, false);
+      consecutiveFails = 0;
+      return r;
+    } catch (err) {
+      if (!fallback || !providerDown(err)) throw err;
+      console.error(`[agent] ${LABEL[primary]} failed (${(err as { status?: number }).status ?? (err as Error).name}): ${(err as Error).message.slice(0, 120)}; failing over`);
+      if (++consecutiveFails >= FAILOVER_AFTER) {
+        breakerUntil = Date.now() + BREAKER_MS;
+        console.error(`[agent] ${LABEL[primary]} skipped for ${BREAKER_MS / 1000} s`);
+      }
+    }
+  }
+  if (!fallback) throw new Error("unreachable");
+  if (!turn.failedOver) {
+    turn.failedOver = true;
+    failoverCount++;
+  }
+  return callOne(fallback, a, true);
 }
 
 export const SYSTEM = `You are CareCue, a medication companion running on an Alexa+ device in the home of an older adult.
@@ -49,6 +202,8 @@ Don't call tools for what the context line already says; use them to change some
 Whenever you call notify_caregiver or record_checkin, your message must START with the complete spoken reply as plain text, then the tool call; that text is what the person hears. Never start such a message with a tool call. This applies to every turn, including crisis and emergency turns.
 
 ${SERVER_INSTRUCTIONS}`;
+
+const SYSTEM_BLOCKS: Anthropic.TextBlockParam[] = [{ type: "text", text: SYSTEM, cache_control: { type: "ephemeral" } }];
 
 // ---------- MCP bridge (one client per household) ----------
 
@@ -239,15 +394,8 @@ export function fallbackReply(kind: "unavailable" | "refusal" | "lost", es: bool
 export async function warmUp(patientId: number): Promise<void> {
   const { tools } = await bridge(patientId);
   const t = Date.now();
-  await client.beta.messages.create({
-    model: MODEL,
-    max_tokens: 16,
-    system: [{ type: "text", text: SYSTEM, cache_control: { type: "ephemeral" } }],
-    tools,
-    messages: [{ role: "user", content: "ok" }],
-    output_config: { effort: "low" },
-  } as Anthropic.Beta.MessageCreateParamsNonStreaming);
-  console.log(`[agent] warm-up ${Date.now() - t} ms`);
+  const { via } = await callModel({ system: SYSTEM_BLOCKS, tools, messages: [{ role: "user", content: "ok" }], maxTokens: 16 });
+  console.log(`[agent] warm-up ${Date.now() - t} ms (${via.provider}, ${via.model})`);
 }
 
 /** One turn at a time per conversation: history must stay append-only (thinking blocks are bound to it). */
@@ -279,26 +427,23 @@ async function chatTurn(key: string, userText: string, patientId: number, retrie
   };
 
   const started = Date.now();
-  const done = (reply: string): AgentTurn => ({ reply, toolCalls, ms: Date.now() - started, model: modelInfo() });
+  const turnCtx = { failedOver: false };
+  let via: Via | null = null;
+  const done = (reply: string): AgentTurn => ({
+    reply,
+    toolCalls,
+    ms: Date.now() - started,
+    model: via ? { provider: turnCtx.failedOver ? FAILOVER_LABEL : via.provider, id: via.model } : modelInfo(),
+  });
   const timing: string[] = [];
   const logTiming = () => console.log(`[agent] turn ${Date.now() - started} ms (${timing.join(", ")})`);
 
   try {
     for (let step = 0; step < 8; step++) {
-      const params = {
-        model: MODEL,
-        max_tokens: 4000,
-        system: [{ type: "text" as const, text: SYSTEM, cache_control: { type: "ephemeral" as const } }],
-        tools,
-        messages: convo.messages,
-        output_config: { effort: "low" as const },
-        ...(useBedrock ? {} : { betas: ["server-side-fallback-2026-07-01"], fallbacks: "default" as const }),
-      };
       const t = Date.now();
-      const response = (await client.beta.messages.create(
-        params as Anthropic.Beta.MessageCreateParamsNonStreaming,
-        { fallbackState: convo.fallback } as Anthropic.RequestOptions,
-      )) as unknown as Anthropic.Message;
+      const called = await callModel({ system: SYSTEM_BLOCKS, tools, messages: convo.messages, maxTokens: 4000, fallbackState: convo.fallback }, turnCtx);
+      const response = called.response;
+      via = called.via;
       timing.push(`model ${Date.now() - t}`);
 
       if (response.stop_reason === "refusal") {

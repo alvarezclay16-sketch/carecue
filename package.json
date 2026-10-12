@@ -7,6 +7,8 @@
     "test": "node tests/lexicon.ts && node tests/trace.ts && node tests/smoke.ts",
     "start": "node --env-file-if-exists=.env src/server.ts",
     "test:limits": "sh scripts/test-limits.sh",
+    "probe:bedrock": "node --env-file-if-exists=.env scripts/probe-bedrock.mjs",
+    "test:bedrock": "node tests/bedrock.ts",
     "test:lexicon": "node tests/lexicon.ts",
     "test:trace": "node tests/trace.ts"
   },

@@ -97,6 +97,12 @@ async function agentReply(req: Request, res: Response, patientId: number, conver
   }
 }
 
+// Which model answered last, how often the fallback had to, and the last real request id. No secrets, nothing mocked.
+app.get("/api/model", async (_req, res) => {
+  res.set("Cache-Control", "no-store");
+  res.json((await import("./agent.ts")).modelStatus());
+});
+
 app.get("/api/limits", (req, res) => {
   const h = req.headers.authorization;
   const link = linkFromAppToken(h?.startsWith("Bearer ") ? h.slice(7) : undefined);
@@ -360,6 +366,11 @@ app.listen(PORT, HOST, () => {
   if (process.env.CARECUE_PUBLIC !== "1" && !["127.0.0.1", "::1", "localhost"].includes(HOST))
     console.warn("  WARNING: listening on a non-loopback address without CARECUE_PUBLIC=1; model routes are not rate limited.");
   console.log(`  Model:           ${hasModelCredentials() ? "credentials found" : "no credentials (assistant disabled)"}`);
+  if (hasModelCredentials())
+    import("./agent.ts").then((a) => {
+      const m = a.modelStatus().configured;
+      console.log(`  Voice agent:     ${m.primary} ${m.model}${m.fallback ? `, failover ${m.fallback.provider} ${m.fallback.model}` : ""}`);
+    });
   if (hasModelCredentials() && process.env.CARECUE_DEMO !== "0")
     import("./agent.ts").then((a) => a.warmUp(demoPatientId())).catch((e) => console.error("[warm-up]", (e as Error).message));
 });

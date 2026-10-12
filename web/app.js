@@ -158,9 +158,22 @@ function renderPhone(state) {
         .join("")
     : `<li class="empty">No alerts. All good.</li>`;
 
+  renderModelPill(state.model_ready);
+}
+
+// The topbar pill reads /api/model: the model and provider that really answered (or will answer first).
+let modelInfo = null;
+function renderModelPill(ready) {
   const ms = $("model-status");
-  ms.textContent = state.model_ready ? "voice agent: ready" : "voice agent: add model credentials";
-  ms.className = "pill " + (state.model_ready ? "ok" : "bad");
+  if (ready && modelInfo) {
+    const where = modelInfo.provider === "Amazon Bedrock" && modelInfo.region ? ` - ${modelInfo.region}` : "";
+    ms.textContent = `${modelInfo.model_name} - ${modelInfo.provider}${where}`;
+    ms.title = modelInfo.last_receipt ? `request ${modelInfo.last_receipt.request_id ?? "n/a"} - ${modelInfo.last_receipt.latency_ms} ms` : "no model call yet";
+  } else {
+    ms.textContent = ready ? "voice agent: ready" : "voice agent: add model credentials";
+    ms.removeAttribute("title");
+  }
+  ms.className = "pill " + (ready ? "ok" : "bad");
 }
 
 function escapeHtml(s) {
@@ -170,6 +183,7 @@ function escapeHtml(s) {
 async function refresh() {
   try {
     const state = await fetch("/api/state").then((r) => r.json());
+    modelInfo = await fetch("/api/model").then((r) => (r.ok ? r.json() : null)).catch(() => null);
     renderDevice(state);
     renderPhone(state);
   } catch {}
