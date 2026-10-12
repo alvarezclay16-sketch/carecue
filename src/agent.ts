@@ -38,7 +38,7 @@ Never mention tools, the log, the app, or what you "just checked". Every word of
 Call independent tools in the same step.
 Be warm and patient, like a kind neighbor, never childish. Use the person's name at most once per conversation and don't praise ("well done"); in Spanish say "ya lo anoté".
 Don't call tools for what the context line already says; use them to change something or to answer from the log.
-When you call only notify_caregiver or record_checkin, write your final spoken reply as text in that same message, before the tool call.
+Whenever you call notify_caregiver or record_checkin, your message must START with the complete spoken reply as plain text, then the tool call; that text is what the person hears. Never start such a message with a tool call. This applies to every turn, including crisis and emergency turns.
 
 ${SERVER_INSTRUCTIONS}`;
 
@@ -257,11 +257,13 @@ async function chatTurn(key: string, userText: string, patientId: number, retrie
         .map((b) => b.text)
         .join(" ")
         .trim();
+      if (!early && uses.every((u) => FIRE_AND_SPEAK.has(u.name))) timing.push("no-early-text");
       if (
         early &&
         uses.every((u) => FIRE_AND_SPEAK.has(u.name)) &&
         results.every((r) => !r.is_error)
       ) {
+        timing.push("early-reply");
         logTiming();
         return { reply: early, toolCalls };
       }
