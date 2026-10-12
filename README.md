@@ -6,7 +6,7 @@ Grandma doesn't need another app. She needs someone in the kitchen who says *"Ro
 
 CareCue is that someone. It is a self-hosted [Model Context Protocol](https://modelcontextprotocol.io) server (spec **2025-11-25**, **Streamable HTTP**) that gives Alexa+ the tools to run a household's medication routine by voice, plus a caregiver view for the family.
 
-> Track: **Alexa+** · Mini challenges: **AWS Builder** (Claude on Amazon Bedrock, Amazon Lightsail) · **Open Source** (MIT)
+> Track: **Alexa+** · Mini challenges: **AWS Builder** (Amazon Lightsail, Alexa Skills Kit; Bedrock-ready) · **Open Source** (MIT)
 
 ---
 
@@ -39,7 +39,7 @@ A voice assistant that is already in the kitchen is the most natural place for t
    ┌────────────────────┐   voice    ┌─────────────────────────┐   MCP (Streamable HTTP,   ┌──────────────────────────────┐
    │  Rosa, in her      │ ─────────▶ │  Alexa+                 │   spec 2025-11-25)        │  CareCue MCP server          │
    │  kitchen           │ ◀───────── │  (or the simulator:     │ ────────────────────────▶ │  12 tools · 1 resource ·     │
-   └────────────────────┘   speech   │  Claude on Bedrock +    │ ◀──────────────────────── │  1 prompt                    │
+   └────────────────────┘   speech   │  Claude + MCP client +  │ ◀──────────────────────── │  1 prompt                    │
                                      │  Web Speech API)        │                           │                              │
                                      └─────────────────────────┘                           │  scheduler: remind → missed  │
                                                                                            │  → escalate → refill alerts  │
@@ -51,7 +51,7 @@ A voice assistant that is already in the kitchen is the most natural place for t
 
 - `src/mcp.ts` — the MCP server: tools, resource, prompt, server instructions (safety rules for the model).
 - `src/care.ts` — the domain logic: schedule, dose log, double-dose guard, adherence, refill forecast, escalation.
-- `src/agent.ts` — the simulated Alexa+ brain: **Claude on Amazon Bedrock** (`AnthropicBedrockMantle`) with the MCP server as its only tools; falls back to the Claude API if no AWS credentials are set.
+- `src/agent.ts` — the simulated Alexa+ brain: **Claude** (Opus) with the MCP server as its only tools. It uses the Claude API when `ANTHROPIC_API_KEY` is set, and **Amazon Bedrock** (`AnthropicBedrockMantle`) with AWS credentials or `CARECUE_PROVIDER=bedrock`. The demo runs on the Claude API because our new AWS account is still waiting for Bedrock model access (see `docs/friction-log.md`).
 - `src/server.ts` — one process serving `/mcp`, `/api/*` and the web device.
 - `web/` — the Alexa+ device simulator (Echo Show-style screen, light bar, push-to-talk) and the caregiver phone.
 
@@ -114,14 +114,16 @@ CareCue stores only what a family enters: first names, medicine names, doses, ti
 ## Safety by design
 
 - The model gets **server instructions** with hard rules: check the log before answering, never suggest changing a dose, escalate emergencies.
+- A hedged "I think I took it" is never logged: `log_dose` requires `person_was_certain`, and writes nothing when it is false.
+- Emergencies use the local number (131 in Chile, 911 in the US), and hopeless talk gets an urgent caregiver alert, a direct safety question and the crisis line (*4141 in Chile, 988 in the US).
 - The **double-dose guard** lives in code, not in the prompt: `log_dose` refuses a second "taken" for a dose that is already taken, and refuses doses more than 60 minutes early.
 - Every caregiver alert is stored and visible; a late confirmation resolves it so families aren't left worrying.
-- Medication changes (`add_medication`, `stop_medication`) are marked as caregiver setup and require confirmation.
+- Medication changes (`add_medication`, `stop_medication`) are caregiver-only: the voice agent cannot call them.
 
 ## Built with
 
 - [MCP TypeScript SDK](https://github.com/modelcontextprotocol/typescript-sdk) 1.32 (protocol 2025-11-25, Streamable HTTP)
-- Claude on **Amazon Bedrock** via `@anthropic-ai/bedrock-sdk`
+- Claude via `@anthropic-ai/sdk` (Claude API) or `@anthropic-ai/bedrock-sdk` (Amazon Bedrock)
 - Node 26, `node:sqlite`, Express, Web Speech API
 
 ## License

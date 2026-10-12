@@ -109,12 +109,16 @@
             "me siento {feeling}",
             "hoy me siento {feeling}",
             "estoy {feeling}",
-            "me encuentro {feeling}"
+            "me encuentro {feeling}",
+            "me siento un poco {feeling}",
+            "ando {feeling}",
+            "tengo {feeling}",
+            "no me siento {feeling}"
           ],
           "slots": [
             {
               "name": "feeling",
-              "type": "AMAZON.SearchQuery"
+              "type": "FEELING"
             }
           ]
         },
@@ -242,6 +246,121 @@
             {
               "name": {
                 "value": "la pastilla del azúcar"
+              }
+            }
+          ]
+        },
+        {
+          "name": "FEELING",
+          "values": [
+            {
+              "name": {
+                "value": "bien"
+              }
+            },
+            {
+              "name": {
+                "value": "muy bien"
+              }
+            },
+            {
+              "name": {
+                "value": "mal"
+              }
+            },
+            {
+              "name": {
+                "value": "muy mal"
+              }
+            },
+            {
+              "name": {
+                "value": "cansada"
+              }
+            },
+            {
+              "name": {
+                "value": "cansado"
+              }
+            },
+            {
+              "name": {
+                "value": "mareada"
+              }
+            },
+            {
+              "name": {
+                "value": "mareado"
+              }
+            },
+            {
+              "name": {
+                "value": "enferma"
+              }
+            },
+            {
+              "name": {
+                "value": "enfermo"
+              }
+            },
+            {
+              "name": {
+                "value": "débil"
+              }
+            },
+            {
+              "name": {
+                "value": "con náuseas"
+              }
+            },
+            {
+              "name": {
+                "value": "triste"
+              }
+            },
+            {
+              "name": {
+                "value": "con dolor"
+              }
+            },
+            {
+              "name": {
+                "value": "con dolor de pecho"
+              }
+            },
+            {
+              "name": {
+                "value": "sin aire"
+              }
+            },
+            {
+              "name": {
+                "value": "confundida"
+              }
+            },
+            {
+              "name": {
+                "value": "confundido"
+              }
+            },
+            {
+              "name": {
+                "value": "mejor"
+              }
+            },
+            {
+              "name": {
+                "value": "un poco mareada"
+              }
+            },
+            {
+              "name": {
+                "value": "un poco mejor"
+              }
+            },
+            {
+              "name": {
+                "value": "como que me voy a desmayar"
               }
             }
           ]

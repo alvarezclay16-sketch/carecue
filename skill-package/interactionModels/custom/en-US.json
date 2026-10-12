@@ -105,13 +105,18 @@
           "samples": [
             "I feel {feeling}",
             "I'm feeling {feeling}",
+            "I am feeling {feeling}",
+            "I'm {feeling}",
+            "I am {feeling}",
             "today I feel {feeling}",
-            "I am feeling {feeling}"
+            "I don't feel {feeling}",
+            "I have {feeling}",
+            "I feel a bit {feeling}"
           ],
           "slots": [
             {
               "name": "feeling",
-              "type": "AMAZON.SearchQuery"
+              "type": "FEELING"
             }
           ]
         },
@@ -238,6 +243,121 @@
             {
               "name": {
                 "value": "my diabetes pill"
+              }
+            }
+          ]
+        },
+        {
+          "name": "FEELING",
+          "values": [
+            {
+              "name": {
+                "value": "good"
+              }
+            },
+            {
+              "name": {
+                "value": "fine"
+              }
+            },
+            {
+              "name": {
+                "value": "great"
+              }
+            },
+            {
+              "name": {
+                "value": "okay"
+              }
+            },
+            {
+              "name": {
+                "value": "tired"
+              }
+            },
+            {
+              "name": {
+                "value": "dizzy"
+              }
+            },
+            {
+              "name": {
+                "value": "sick"
+              }
+            },
+            {
+              "name": {
+                "value": "bad"
+              }
+            },
+            {
+              "name": {
+                "value": "not good"
+              }
+            },
+            {
+              "name": {
+                "value": "weak"
+              }
+            },
+            {
+              "name": {
+                "value": "nauseous"
+              }
+            },
+            {
+              "name": {
+                "value": "sad"
+              }
+            },
+            {
+              "name": {
+                "value": "in pain"
+              }
+            },
+            {
+              "name": {
+                "value": "short of breath"
+              }
+            },
+            {
+              "name": {
+                "value": "a pain in my chest"
+              }
+            },
+            {
+              "name": {
+                "value": "chest pain"
+              }
+            },
+            {
+              "name": {
+                "value": "confused"
+              }
+            },
+            {
+              "name": {
+                "value": "like I might faint"
+              }
+            },
+            {
+              "name": {
+                "value": "better"
+              }
+            },
+            {
+              "name": {
+                "value": "much better"
+              }
+            },
+            {
+              "name": {
+                "value": "a little dizzy"
+              }
+            },
+            {
+              "name": {
+                "value": "very tired"
               }
             }
           ]

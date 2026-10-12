@@ -37,8 +37,13 @@ const reminder = events.find((e: { kind: string }) => e.kind === "reminder");
 assert.ok(reminder, "expected a spoken reminder");
 console.log("reminder:", reminder.text);
 
+// "I think I took them" -> nothing is written.
+const hedged = await call("log_dose", { medication: "all_due", status: "taken", person_was_certain: false });
+assert.equal(hedged.ok, false);
+assert.deepEqual(hedged.warnings, ["unconfirmed"]);
+
 // "I took my pills" -> logs both.
-let log = await call("log_dose", { medication: "all_due", status: "taken" });
+let log = await call("log_dose", { medication: "all_due", status: "taken", person_was_certain: true });
 assert.equal(log.ok, true);
 assert.equal(log.logged.length, 2);
 console.log("log:", log.message);
@@ -46,13 +51,13 @@ console.log("log:", log.message);
 // "Did I take my Losartan?" then the double-dose guard.
 const took = await call("check_what_i_took", { medication: "losartan" });
 assert.equal(took.taken.length, 1);
-log = await call("log_dose", { medication: "Losartan", status: "taken" });
+log = await call("log_dose", { medication: "Losartan", status: "taken", person_was_certain: true });
 assert.equal(log.ok, false);
 assert.ok(log.warnings.includes("possible_double_dose"));
 console.log("double-dose guard:", log.message);
 
 // Too early for the evening Metformin at 8 AM... it's 12 hours away.
-log = await call("log_dose", { medication: "Metformin", status: "taken" });
+log = await call("log_dose", { medication: "Metformin", status: "taken", person_was_certain: true });
 assert.equal(log.ok, false);
 assert.ok(log.warnings.includes("too_early"));
 
@@ -70,7 +75,7 @@ assert.ok(missed, "expected a missed-dose alert to the caregiver");
 console.log("caregiver alert:", missed.message);
 
 // Late confirmation clears the alert.
-log = await call("log_dose", { medication: "Metformin", status: "taken", note: "took it late" });
+log = await call("log_dose", { medication: "Metformin", status: "taken", person_was_certain: true, note: "took it late" });
 assert.equal(log.ok, true);
 const after = await fetch(base + "/api/state").then((r) => r.json());
 assert.equal(after.alerts.find((a: { id: number }) => a.id === missed.id).acknowledged, 1);

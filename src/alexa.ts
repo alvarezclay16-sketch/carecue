@@ -41,11 +41,11 @@ const T = {
     nothingTaken: "You haven't logged any medicine yet today.",
     refillAdded: (n: number, med: string, days: number | null) =>
       `Added ${n} ${med}. That's about ${days ?? "a few"} days of supply.`,
-    refillLow: (list: string) => `You're running low on ${list}. I've let your family know.`,
+    refillLow: (list: string) => `You're running low on ${list}. Your family gets a refill reminder in their app.`,
     refillOk: "You have enough of all your medicines for now.",
     feelGood: "I'm glad to hear that.",
-    feelBad: (who: string) => `I'm sorry you feel that way. I've let ${who} know. If it gets worse, call emergency services.`,
-    emergency: (who: string) => `This sounds serious. Please call emergency services now. I'm alerting ${who} right away.`,
+    feelBad: (who: string, num: string) => `I'm sorry you feel that way. I sent ${who} a message. If you faint, or have chest pain or trouble speaking, call ${num}.`,
+    emergency: (who: string, num: string) => `Please call ${num} now. I sent ${who} an urgent message.`,
     familyTold: (who: string) => `I've sent a message to ${who}.`,
     family: "your family",
     help: "You can say: I took my pills. Did I take my Losartan? What's next? Or: tell my family I'm okay.",
@@ -82,11 +82,11 @@ const T = {
     nothingTaken: "Todavía no has anotado ningún remedio hoy.",
     refillAdded: (n: number, med: string, days: number | null) =>
       `Agregué ${n} de ${med}. Te alcanza para unos ${days ?? "pocos"} días.`,
-    refillLow: (list: string) => `Te queda poco de ${list}. Ya le avisé a tu familia.`,
+    refillLow: (list: string) => `Te queda poco de ${list}. Tu familia recibe un aviso de reposición en su app.`,
     refillOk: "Tienes suficiente de todos tus remedios por ahora.",
     feelGood: "Qué bueno escuchar eso.",
-    feelBad: (who: string) => `Lamento que te sientas así. Ya le avisé a ${who}. Si empeora, llama a emergencias.`,
-    emergency: (who: string) => `Esto suena serio. Por favor llama a emergencias ahora. Estoy avisando a ${who} de inmediato.`,
+    feelBad: (who: string, num: string) => `Lamento que te sientas así. Le mandé un mensaje a ${who}. Si te desmayas, tienes dolor de pecho o te cuesta hablar, llama al ${num}.`,
+    emergency: (who: string, num: string) => `Por favor llama al ${num} ahora. Le mandé un mensaje urgente a ${who}.`,
     familyTold: (who: string) => `Le mandé un mensaje a ${who}.`,
     family: "tu familia",
     help: "Puedes decir: ya me tomé las pastillas. ¿Me tomé el Losartán? ¿Qué me toca ahora? O: avísale a mi familia que estoy bien.",
@@ -361,14 +361,15 @@ const Feeling = householdIntent("FeelingIntent", async (h, link, l) => {
   const feeling = slot(h, "feeling") ?? "";
   const p = care.getPatient(link.patient_id);
   const who = caregiverName(link.patient_id, l);
+  const num = care.emergencyNumber(link.patient_id).split("").join(" ");
   care.recordCheckin(link.patient_id, feeling || "unspecified", "said to Alexa");
   if (EMERGENCY.test(feeling)) {
     await care.alertCaregivers(link.patient_id, "help", "urgent", `${p.name} told Alexa: "${feeling}". This may be an emergency. Please call now.`);
-    return T[l].emergency(who);
+    return T[l].emergency(who, num);
   }
   if (BAD.test(feeling)) {
     await care.alertCaregivers(link.patient_id, "wellbeing", "warning", `${p.name} told Alexa they feel "${feeling}".`);
-    return T[l].feelBad(who);
+    return T[l].feelBad(who, num);
   }
   return T[l].feelGood;
 });

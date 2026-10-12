@@ -65,8 +65,11 @@ async function agentReply(res: Response, patientId: number, conversationId: stri
     const { chat } = await import("./agent.ts");
     res.json(await chat(conversationId, text, patientId));
   } catch (err) {
+    // Never leave a voice device silent: answer with a safe spoken sentence instead of an error body.
     console.error("[agent]", err);
-    res.status(502).json({ error: "The assistant is not available right now. Please try again in a moment." });
+    const { fallbackReply } = await import("./agent.ts");
+    const es = /[¿¡ñáéíóú]|\b(qué|me|mi|tomé|pastilla|remedio)\b/i.test(text) || care.getPatient(patientId).preferred_language === "es";
+    res.json({ reply: fallbackReply("unavailable", es, care.emergencyNumber(patientId)), toolCalls: [], degraded: true });
   }
 }
 
@@ -319,4 +322,6 @@ app.listen(PORT, HOST, () => {
   console.log(`  Mobile app:      /app`);
   console.log(`  Simulator:       /`);
   console.log(`  Model:           ${hasModelCredentials() ? "credentials found" : "no credentials (assistant disabled)"}`);
+  if (hasModelCredentials() && process.env.CARECUE_DEMO !== "0")
+    import("./agent.ts").then((a) => a.warmUp(demoPatientId())).catch((e) => console.error("[warm-up]", (e as Error).message));
 });

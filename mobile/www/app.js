@@ -120,7 +120,10 @@ const fmt = (hhmm) => {
   const h12 = h % 12 === 0 ? 12 : h % 12;
   return `${h12}${m ? ":" + String(m).padStart(2, "0") : ""} ${h < 12 ? "AM" : "PM"}`;
 };
-const joinNames = (arr) => (arr.length < 2 ? arr.join("") : `${arr.slice(0, -1).join(", ")} ${st.lang === "es" ? "y" : "and"} ${arr.at(-1)}`);
+const joinNames = (list) => {
+  const arr = [...new Set(list)];
+  return arr.length < 2 ? arr.join("") : `${arr.slice(0, -1).join(", ")} ${st.lang === "es" ? "y" : "and"} ${arr.at(-1)}`;
+};
 
 async function api(path, opts = {}) {
   const res = await fetch(API + "/api/app" + path, {
@@ -449,7 +452,7 @@ function renderSenior() {
     main = `<div class="card due">
       <div class="next-label"><span class="pill-dot"></span>${esc(late ? L().stillWaiting : L().timeFor)}</div>
       <div class="next-name">${esc(joinNames(due.map((x) => x.medication)))}</div>
-      <div class="next-sub">${esc(due.map((x) => x.dose).join(" · "))}${due[0].instructions ? " · " + esc(due[0].instructions) : ""}</div>
+      <div class="next-sub">${esc(due.length === 1 ? `${due[0].dose}${due[0].instructions ? " · " + due[0].instructions : ""}` : due.map((x) => `${x.medication} ${x.dose}`).filter((v, i, a) => a.indexOf(v) === i).join(" · "))}</div>
       <button class="btn big ok" data-act="took" style="margin-top:18px"><span class="ico">✓</span>${esc(L().iTookIt)}</button>
     </div>`;
   } else if (next) {

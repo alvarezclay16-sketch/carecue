@@ -24,6 +24,8 @@ function pickVoice() {
 }
 
 function speak(text, mode = "speaking") {
+  // Recording mode: the voice track is produced separately, so stay silent and don't wait.
+  if (window.CARECUE_SILENT) return Promise.resolve();
   return new Promise((resolve) => {
     if (!("speechSynthesis" in window)) return resolve();
     speechSynthesis.cancel();
@@ -245,6 +247,8 @@ $("reset").addEventListener("click", async () => {
 // Don't replay reminders that fired before the page opened.
 fetch("/api/events?since=0").then((r) => r.json()).then((ev) => { lastEventId = ev.reduce((m, e) => Math.max(m, e.id), 0); });
 speechSynthesis?.getVoices();
+// Hooks for scripted demo recordings (tests/record-demo).
+window.carecueDemo = { ask, ring, refresh, pollEvents };
 refresh();
 setInterval(refresh, 3000);
 setInterval(pollEvents, 1500);

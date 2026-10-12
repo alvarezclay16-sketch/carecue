@@ -19,10 +19,10 @@ CareCue helps an older adult living at home take the right medicine at the right
 
 ## How it's built
 - **MCP server** (TypeScript, MCP SDK 1.32, protocol **2025-11-25**, **Streamable HTTP**, stateless): 12 tools, 1 resource, 1 prompt, server instructions with safety rules. Household-scoped auth (app tokens, internal agent tokens, optional shared token).
-- **Alexa+ simulated experience**: web device with push-to-talk, light bar and proactive reminders; the brain is **Claude on Amazon Bedrock** (Mantle endpoint) with the CareCue MCP server as its only tools.
+- **Alexa+ simulated experience**: web device with push-to-talk, light bar and proactive reminders; the brain is **Claude** with the CareCue MCP server as its only tools. The same code runs on Amazon Bedrock (Mantle endpoint); the demo uses the Claude API while our account waits for Bedrock model access.
 - **Alexa custom skill** (ASK SDK v2, signature-verified): en-US, es-US, es-MX, es-ES; daily **Alexa Reminders API** reminders at each medicine time; 4-digit code linking.
 - **Android app** (Capacitor 8): senior mode designed for low vision and unsteady hands (Atkinson Hyperlegible, 72–96 px buttons, one action per screen, spoken confirmations, adjustable text size, local notifications) and family mode (status, adherence, alerts, medicines, connection codes).
-- **AWS**: Claude on Amazon Bedrock, Amazon Lightsail (Node 24 + Caddy, automatic HTTPS).
+- **AWS**: Amazon Lightsail (Node 24 + Caddy, automatic HTTPS), Alexa Skills Kit (SMAPI, Reminders API); Bedrock-ready via `CARECUE_PROVIDER=bedrock`.
 
 ## Product feedback
 - **Alexa+ / MCP:** Building against MCP 2025-11-25 with Streamable HTTP was straightforward; the stateless pattern (fresh server per request) made auth scoping per household easy. What we missed most: a way to test a self-hosted MCP server inside Alexa+ from outside the US. A hosted "paste your MCP URL and talk to it" console would remove that gap. Would build with it again: yes.

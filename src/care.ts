@@ -2,7 +2,7 @@
 // No medical decisions live here: CareCue only follows the schedule the prescription gives it.
 
 import { db, type Alert, type Caregiver, type Dose, type Medication, type Patient } from "./db.ts";
-import { atLocal, localDate, localTime, now, spokenTime } from "./clock.ts";
+import { atLocal, localDate, localTime, now, spokenTime, spokenTimeEs } from "./clock.ts";
 
 // ---------- lookups ----------
 
@@ -16,6 +16,23 @@ export function getPatient(patientId?: number): Patient {
 
 export function listPatients(): Patient[] {
   return db.prepare("SELECT * FROM patients ORDER BY id").all() as Patient[];
+}
+
+/** Local emergency number: Chile (Spanish household or a +56 caregiver phone) gets 131, otherwise 911. */
+function isChile(patientId: number): boolean {
+  return (
+    getPatient(patientId).preferred_language === "es" ||
+    caregiversOf(patientId).some((c) => (c.contact ?? "").replace(/\s/g, "").startsWith("+56"))
+  );
+}
+
+export function emergencyNumber(patientId: number): string {
+  return process.env.CARECUE_EMERGENCY_NUMBER ?? (isChile(patientId) ? "131" : "911");
+}
+
+/** Suicide-prevention line: *4141 (MINSAL, Chile) or 988 (US). */
+export function crisisLine(patientId: number): string {
+  return process.env.CARECUE_CRISIS_LINE ?? (isChile(patientId) ? "*4141" : "988");
 }
 
 export function caregiversOf(patientId: number): Caregiver[] {
@@ -137,7 +154,7 @@ export function logDose(
   if (medicationName === "all_due") {
     targets = doses.filter((d) => OPEN.has(d.status) && d.time <= clock);
     if (targets.length === 0) {
-      return { ok: false, message: "Nothing is due right now, so I didn't log anything.", logged: [], warnings };
+      return { ok: false, message: "Nothing is due right now, so nothing was written down.", logged: [], warnings: ["nothing_due"] };
     }
   } else {
     const med = findMedication(patientId, medicationName);
@@ -162,7 +179,7 @@ export function logDose(
       const next = open[0];
       return {
         ok: false,
-        message: `Your next ${med.name} isn't until ${spokenTime(next.time)}. It's a bit early, so I haven't logged it.`,
+        message: `Your next ${med.name} isn't until ${spokenTime(next.time)}, so nothing was written down.`,
         logged: [],
         warnings: ["too_early"],
       };
@@ -187,9 +204,25 @@ export function logDose(
   ).run(...targets.map((d) => d.id));
 
   const names = targets.map((d) => `${d.medication} (${spokenTime(d.time)})`).join(" and ");
+  const late = targets.filter((d) => d.status === "missed");
+  if (late.length && status === "taken") {
+    // Close the loop with the family: the missed-dose alert they got is now resolved.
+    const p = getPatient(patientId);
+    const list = late.map((d) => d.medication).join(", ");
+    void alertCaregivers(
+      patientId,
+      "info",
+      "info",
+      p.preferred_language === "es"
+        ? `${p.name} dijo que se tomó ${list} con retraso; lo confirmó a ${spokenTimeEs(localTime(t))}. La alerta anterior quedó resuelta.`
+        : `${p.name} reported taking ${list} late, confirmed at ${spokenTime(localTime(t))}. The earlier alert is resolved.`,
+    );
+  }
   return {
     ok: true,
-    message: status === "taken" ? `Logged: ${names} taken.` : `Logged: ${names} skipped.`,
+    message:
+      (status === "taken" ? `Logged: ${names} taken.` : `Logged: ${names} skipped.`) +
+      (late.length ? " That dose had been marked missed; the caregiver has been told it is now taken." : ""),
     logged: targets.map((d) => ({ medication: d.medication, time: d.time, status })),
     warnings,
   };
@@ -280,6 +313,17 @@ export function recordRefill(patientId: number, medicationName: string, units: n
     `%${med.name}%`,
   );
   const f = refillForecast(patientId).find((r) => r.medication === med.name)!;
+  const p = getPatient(patientId);
+  void alertCaregivers(
+    patientId,
+    "refill",
+    "info",
+    p.preferred_language === "es"
+      ? `${p.name} repuso ${units} de ${med.name}. Ahora tiene ${f.units_on_hand} (unos ${f.days_left} días).`
+      : `${p.name} restocked ${units} ${med.name}. Now ${f.units_on_hand} on hand (about ${f.days_left} days).`,
+  ).then(() =>
+    db.prepare("UPDATE alerts SET acknowledged = 1 WHERE patient_id = ? AND kind = 'refill' AND message LIKE ?").run(patientId, `%${med.name}%`),
+  );
   return { ok: true, message: `Added ${units} to ${med.name}. That's about ${f.days_left} days of supply.`, forecast: f };
 }
 
@@ -352,13 +396,29 @@ export async function alertCaregivers(
 ) {
   const caregivers = caregiversOf(patientId);
   const to = caregivers.map((c) => `${c.name} (${c.relationship})`).join(", ") || "no caregiver configured";
+  // One open message per incident: a repeat within 10 minutes is appended to the open alert instead,
+  // unless it is more serious than that alert (an escalation gets its own row).
+  if (doseId == null && kind !== "refill" && kind !== "missed_dose") {
+    const prev = db
+      .prepare(
+        "SELECT id, severity FROM alerts WHERE patient_id = ? AND kind NOT IN ('refill','missed_dose') AND acknowledged = 0 AND dose_id IS NULL AND created_at > ? ORDER BY id DESC LIMIT 1",
+      )
+      .get(patientId, new Date(now().getTime() - 10 * 60_000).toISOString()) as { id: number; severity: string } | undefined;
+    const rank: Record<string, number> = { info: 0, warning: 1, urgent: 2 };
+    if (prev && rank[severity] <= rank[prev.severity]) {
+      db.prepare("UPDATE alerts SET message = message || ' | [' || ? || '] ' || ? WHERE id = ?").run(getPatient(patientId).preferred_language === "es" ? spokenTimeEs(localTime(now())) : spokenTime(localTime(now())), message, prev.id);
+      pushEvent({ kind: "alert", text: `To ${to}: ${message}`, patient_id: patientId });
+      void deliver({ patient: getPatient(patientId).name, kind, severity, message, to });
+      return { ok: true, merged: true, alert_id: prev.id, delivered_to: to };
+    }
+  }
   const r = db
     .prepare(
       "INSERT INTO alerts (patient_id, dose_id, kind, severity, message, created_at, delivered_to) VALUES (?, ?, ?, ?, ?, ?, ?)",
     )
     .run(patientId, doseId, kind, severity, message, now().toISOString(), to);
   pushEvent({ kind: "alert", text: `To ${to}: ${message}`, patient_id: patientId });
-  await deliver({ patient: getPatient(patientId).name, kind, severity, message, to });
+  void deliver({ patient: getPatient(patientId).name, kind, severity, message, to });
   return { ok: true, alert_id: Number(r.lastInsertRowid), delivered_to: to };
 }
 
@@ -419,6 +479,16 @@ export function caregiverBriefing(patientId: number) {
     adherence_7d: adherence(patientId, 7),
     refills: refillForecast(patientId).filter((r) => r.needs_refill),
     open_alerts: openAlerts(patientId).map((a) => ({ kind: a.kind, severity: a.severity, message: a.message, at: a.created_at })),
+    alerts_today: recentAlerts(patientId, 30)
+      .filter((a) => localDate(new Date(a.created_at)) === localDate(now()))
+      .map((a) => ({
+        kind: a.kind,
+        severity: a.severity,
+        sent_to: a.delivered_to,
+        at: localTime(new Date(a.created_at)),
+        status: a.acknowledged ? "resolved" : "open",
+        message: a.message,
+      })),
     recent_checkins: recentCheckins(patientId, 3),
   };
 }
@@ -442,10 +512,14 @@ export async function tick(): Promise<void> {
     if (toRemind.length) {
       const stamp = t.toISOString();
       for (const d of toRemind) db.prepare("UPDATE doses SET status = 'reminded', reminded_at = ? WHERE id = ?").run(stamp, d.id);
-      const list = toRemind.map((d) => `${d.medication}, ${d.dose_text}${d.instructions ? `, ${d.instructions}` : ""}`).join("; ");
-      const text = p.preferred_language === "es"
-        ? `${p.name}, es hora de tu remedio: ${list}. Avísame cuando te lo tomes.`
-        : `${p.name}, it's time for your medicine: ${list}. Tell me when you've taken it.`;
+      // Spoken out loud: name and amount only ("Losartan, 1 tablet"); strength and instructions stay on screen.
+      const es = p.preferred_language === "es";
+      const items = toRemind.map((d) => `${d.medication}, ${d.dose_text.split(",").pop()!.trim()}`);
+      const list = items.length > 1 ? `${items.slice(0, -1).join(", ")}${es ? " y " : ", and "}${items.at(-1)}` : items[0];
+      const many = items.length > 1;
+      const text = es
+        ? `${p.name}, es hora de tu remedio: ${list}. Avísame cuando ${many ? "te los tomes" : "te lo tomes"}.`
+        : `${p.name}, it's time for your medicine: ${list}. Tell me when you've taken ${many ? "them" : "it"}.`;
       pushEvent({ kind: "reminder", text, patient_id: p.id });
     }
 
@@ -463,7 +537,7 @@ export async function tick(): Promise<void> {
             "missed_dose",
             "warning",
             p.preferred_language === "es"
-              ? `${p.name} no ha confirmado ${d.medication} (${d.dose_text}) de las ${d.time}. Ya son las ${localTime(t)}. Quizás convenga llamar.`
+              ? `${p.name} no ha confirmado ${d.medication} (${d.dose_text}) de ${spokenTimeEs(d.time)}. ${spokenTimeEs(localTime(t)).startsWith("la ") ? "Ya es" : "Ya son"} ${spokenTimeEs(localTime(t))}. Quizás convenga llamar.`
               : `${p.name} hasn't confirmed the ${spokenTime(d.time)} ${d.medication} (${d.dose_text}). It's now ${spokenTime(localTime(t))}. You may want to give ${p.name} a call.`,
             d.id,
           );
