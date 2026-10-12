@@ -5,7 +5,7 @@
 **Track:** Alexa+ · **Mini challenges:** AWS Builder, Open Source
 **Repo:** https://github.com/alvarezclay16-sketch/carecue (MIT)
 **Live server:** https://98-86-85-249.sslip.io (simulator at `/`, mobile web app at `/app`, MCP at `/mcp`, Alexa endpoint at `/alexa`)
-**Demo video (2:52):** _paste the YouTube/Vimeo link here_ (file: `ENTREGA/CareCue-demo.mp4`)
+**Demo video (2:42):** _paste the YouTube/Vimeo link here_ (file: `ENTREGA/CareCue-demo.mp4`)
 
 ## What it does
 CareCue helps an older adult living at home take the right medicine at the right time, by voice, and keeps the family in the loop without phone calls every morning.
