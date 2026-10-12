@@ -1,12 +1,14 @@
 // CareCue MCP server: the tools Alexa+ (or any MCP client) calls.
 // Transport: Streamable HTTP, stateless, MCP spec 2025-11-25.
 
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import type { Request, Response } from "express";
 import { z } from "zod";
 import * as care from "./care.ts";
-import { linkFromAppToken } from "./households.ts";
+import { linkFromAppToken, type Role } from "./households.ts";
 import { demoPatientId } from "./db.ts";
 import { verifyAgentToken } from "./agent-token.ts";
 
@@ -50,11 +52,26 @@ const patientId = z
   .optional()
   .describe("Only needed when the device is shared by more than one person. Defaults to the household's main patient.");
 
-export function buildServer(householdPatientId?: number): McpServer {
+// Tool annotations (MCP 2025-11-25): hints that tell a client which tools only read, write, or message people.
+const READ = { readOnlyHint: true, idempotentHint: true, openWorldHint: false };
+const WRITE = { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false };
+const WRITE_ONCE = { ...WRITE, idempotentHint: true }; // the same call twice writes nothing new
+const MESSAGE = { ...WRITE, openWorldHint: true }; // reaches people outside the server
+const DESTRUCTIVE = { ...WRITE_ONCE, destructiveHint: true };
+
+/** Tools only a caregiver session can see or call. Everyone else gets 403 insufficient_scope. */
+export const ADMIN_TOOLS: ReadonlySet<string> = new Set(["add_medication", "stop_medication"]);
+
+export function buildServer(householdPatientId?: number, role: Role = "patient"): McpServer {
   // A household-scoped connection ignores patient_id from the model: it can only see its own home.
   const pid = (requested?: number) => care.getPatient(householdPatientId ?? requested ?? demoPatientId()).id;
   const server = new McpServer(
-    { name: "carecue", title: "CareCue medication companion", version: "0.1.0" },
+    {
+      name: "carecue",
+      title: "CareCue medication companion",
+      version: "0.1.0",
+      ...(publicUrl() ? { websiteUrl: publicUrl(), icons: [{ src: `${publicUrl()}/app/icon-192.png`, mimeType: "image/png", sizes: ["192x192"] }] } : {}),
+    },
     { instructions: SERVER_INSTRUCTIONS },
   );
 
@@ -65,7 +82,7 @@ export function buildServer(householdPatientId?: number): McpServer {
       description:
         "What medicine is due right now, what's coming up next, and what has already been taken today. Use for 'what do I take now?', 'what's next?', 'what's left today?'.",
       inputSchema: { patient_id: patientId },
-      annotations: { readOnlyHint: true },
+      annotations: READ,
     },
     async ({ patient_id }) => json(care.todaySchedule(pid(patient_id))),
   );
@@ -85,6 +102,7 @@ export function buildServer(householdPatientId?: number): McpServer {
           .describe("true only if the person stated, with no hedge, that they took this exact medicine. false for 'I think', 'maybe' or a guess."),
         patient_id: patientId,
       },
+      annotations: WRITE_ONCE,
     },
     async ({ medication, status, note, person_was_certain, patient_id }) => {
       // A hedged "I think I took it" must never become a logged dose.
@@ -109,7 +127,7 @@ export function buildServer(householdPatientId?: number): McpServer {
         medication: z.string().optional().describe("Limit to one medication."),
         patient_id: patientId,
       },
-      annotations: { readOnlyHint: true },
+      annotations: READ,
     },
     async ({ medication, patient_id }) => json(care.whatHaveITaken(pid(patient_id), medication)),
   );
@@ -120,7 +138,7 @@ export function buildServer(householdPatientId?: number): McpServer {
       title: "List medications",
       description: "All active medications with dose, instructions, and scheduled times.",
       inputSchema: { patient_id: patientId },
-      annotations: { readOnlyHint: true },
+      annotations: READ,
     },
     async ({ patient_id }) =>
       json(
@@ -139,7 +157,7 @@ export function buildServer(householdPatientId?: number): McpServer {
       title: "Refill status",
       description: "How many days of each medication are left, and which ones need a refill soon.",
       inputSchema: { patient_id: patientId },
-      annotations: { readOnlyHint: true },
+      annotations: READ,
     },
     async ({ patient_id }) => json(care.refillForecast(pid(patient_id))),
   );
@@ -154,6 +172,7 @@ export function buildServer(householdPatientId?: number): McpServer {
         units: z.number().positive().describe("Number of tablets/units added."),
         patient_id: patientId,
       },
+      annotations: WRITE,
     },
     async ({ medication, units, patient_id }) => json(care.recordRefill(pid(patient_id), medication, units)),
   );
@@ -170,6 +189,7 @@ export function buildServer(householdPatientId?: number): McpServer {
         kind: z.enum(["help", "wellbeing", "info"]).default("info"),
         patient_id: patientId,
       },
+      annotations: MESSAGE,
     },
     async ({ message, severity, kind, patient_id }) =>
       json(await care.alertCaregivers(pid(patient_id), kind, severity, message)),
@@ -186,6 +206,7 @@ export function buildServer(householdPatientId?: number): McpServer {
         note: z.string().optional(),
         patient_id: patientId,
       },
+      annotations: WRITE,
     },
     async ({ mood, note, patient_id }) => json(care.recordCheckin(pid(patient_id), mood, note ?? "")),
   );
@@ -196,7 +217,7 @@ export function buildServer(householdPatientId?: number): McpServer {
       title: "Adherence summary",
       description: "How many scheduled doses were taken, missed, or skipped over the last N days.",
       inputSchema: { days: z.number().int().min(1).max(90).default(7), patient_id: patientId },
-      annotations: { readOnlyHint: true },
+      annotations: READ,
     },
     async ({ days, patient_id }) => json(care.adherence(pid(patient_id), days)),
   );
@@ -208,40 +229,44 @@ export function buildServer(householdPatientId?: number): McpServer {
       description:
         "One-shot summary for a family member: today's doses, 7-day adherence, refills needed, today's alerts (who received them and whether they were resolved) and recent check-ins. Use it for 'how is Mom doing?' and when the person asks whether family was told or got worried. Report only what the data shows.",
       inputSchema: { patient_id: patientId },
-      annotations: { readOnlyHint: true },
+      annotations: READ,
     },
     async ({ patient_id }) => json(care.caregiverBriefing(pid(patient_id))),
   );
 
-  server.registerTool(
-    "add_medication",
-    {
-      title: "Add a medication (caregiver setup)",
-      description:
-        "Add a prescribed medication to the schedule. Only use with details from the prescription label; confirm the name, dose and times back to the user before calling.",
-      inputSchema: {
-        name: z.string(),
-        dose: z.string().describe("As written on the label, e.g. '10 mg, 1 tablet'."),
-        times: z.array(z.string()).min(1).describe("Local times, e.g. ['08:00', '8:30 PM']."),
-        instructions: z.string().optional(),
-        units_on_hand: z.number().min(0).optional(),
-        units_per_dose: z.number().positive().optional(),
-        patient_id: patientId,
+  // Medicines change only in a caregiver session. A patient or voice session does not even list these two.
+  if (role === "caregiver") {
+    server.registerTool(
+      "add_medication",
+      {
+        title: "Add a medication (caregiver setup)",
+        description:
+          "Add a prescribed medication to the schedule. Only use with details from the prescription label; confirm the name, dose and times back to the user before calling.",
+        inputSchema: {
+          name: z.string(),
+          dose: z.string().describe("As written on the label, e.g. '10 mg, 1 tablet'."),
+          times: z.array(z.string()).min(1).describe("Local times, e.g. ['08:00', '8:30 PM']."),
+          instructions: z.string().optional(),
+          units_on_hand: z.number().min(0).optional(),
+          units_per_dose: z.number().positive().optional(),
+          patient_id: patientId,
+        },
+        annotations: WRITE,
       },
-    },
-    async ({ patient_id, ...input }) => json(care.addMedication(pid(patient_id), input)),
-  );
+      async ({ patient_id, ...input }) => json(care.addMedication(pid(patient_id), input)),
+    );
 
-  server.registerTool(
-    "stop_medication",
-    {
-      title: "Remove a medication (caregiver setup)",
-      description: "Remove a medication from the schedule when the doctor has stopped it. Confirm with the user before calling.",
-      inputSchema: { medication: z.string(), patient_id: patientId },
-      annotations: { destructiveHint: true },
-    },
-    async ({ medication, patient_id }) => json(care.stopMedication(pid(patient_id), medication)),
-  );
+    server.registerTool(
+      "stop_medication",
+      {
+        title: "Remove a medication (caregiver setup)",
+        description: "Remove a medication from the schedule when the doctor has stopped it. Confirm with the user before calling.",
+        inputSchema: { medication: z.string(), patient_id: patientId },
+        annotations: DESTRUCTIVE,
+      },
+      async ({ medication, patient_id }) => json(care.stopMedication(pid(patient_id), medication)),
+    );
+  }
 
   server.registerResource(
     "today",
@@ -271,14 +296,89 @@ export function buildServer(householdPatientId?: number): McpServer {
   return server;
 }
 
+/** Public base URL of this instance (no trailing slash), if configured. Used for the server's icon and website. */
+function publicUrl(): string | undefined {
+  return process.env.CARECUE_PUBLIC_URL?.replace(/\/+$/, "") || undefined;
+}
+
+// ---------- who sees which tools ----------
+
+export type ToolInfo = { name: string; title?: string; annotations: Record<string, unknown> | null };
+const toolLists = new Map<Role, Promise<ToolInfo[]>>();
+
+/** The tools a session of this role is offered, read from a real server over an in-memory transport. */
+export function toolsFor(role: Role): Promise<ToolInfo[]> {
+  let list = toolLists.get(role);
+  if (!list) {
+    list = (async () => {
+      const server = buildServer(undefined, role);
+      const client = new Client({ name: "carecue-introspection", version: "0.1.0" });
+      const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
+      await Promise.all([server.connect(serverSide), client.connect(clientSide)]);
+      try {
+        const { tools } = await client.listTools();
+        return tools.map((t) => ({ name: t.name, title: t.title, annotations: (t.annotations as Record<string, unknown> | undefined) ?? null }));
+      } finally {
+        await client.close();
+        await server.close();
+      }
+    })();
+    list.catch(() => toolLists.delete(role));
+    toolLists.set(role, list);
+  }
+  return list;
+}
+
+export async function toolNamesFor(role: Role): Promise<string[]> {
+  return (await toolsFor(role)).map((t) => t.name);
+}
+
+// ---------- the /mcp door ----------
+
+const rpcError = (code: number, message: string, id: unknown = null) => ({ jsonrpc: "2.0", error: { code, message }, id });
+
+/** A browser page on another site must not drive this server (DNS rebinding, CSRF). Requests with no Origin header are fine. */
+function originAllowed(req: Request): boolean {
+  const origin = req.headers.origin;
+  if (!origin) return true;
+  const o = String(origin).toLowerCase().replace(/\/+$/, "");
+  const allowed = (process.env.CARECUE_ALLOWED_ORIGINS ?? "")
+    .split(",")
+    .map((x) => x.trim().toLowerCase().replace(/\/+$/, ""))
+    .filter(Boolean);
+  if (publicUrl()) allowed.push(new URL(publicUrl()!).origin.toLowerCase());
+  if (allowed.includes(o)) return true;
+  try {
+    const host = new URL(o).host;
+    const forwarded = String(req.headers["x-forwarded-host"] ?? "").split(",")[0].trim().toLowerCase();
+    return host === String(req.headers.host ?? "").toLowerCase() || (!!forwarded && host === forwarded);
+  } catch {
+    return false; // "null" and other opaque origins
+  }
+}
+
 /** Express handler for POST /mcp. Stateless: a fresh server + transport per request. */
 export async function handleMcp(req: Request, res: Response) {
-  const scope = resolveScope(req.headers.authorization);
-  if (scope === "denied") {
-    res.status(401).json({ jsonrpc: "2.0", error: { code: -32001, message: "Unauthorized" }, id: null });
+  if (!originAllowed(req)) {
+    res.status(403).json(rpcError(-32003, "Forbidden: this origin may not call the MCP server."));
     return;
   }
-  const server = buildServer(scope);
+  const scope = resolveScope(req.headers.authorization);
+  if (scope === "denied") {
+    res.status(401).json(rpcError(-32001, "Unauthorized"));
+    return;
+  }
+  // The SDK would answer 200 "tool not found" for a tool this role cannot see. Say what really happened.
+  if (scope.role !== "caregiver") {
+    const batch: Array<{ method?: string; id?: unknown; params?: { name?: string } }> = Array.isArray(req.body) ? req.body : [req.body];
+    const denied = batch.find((m) => m?.method === "tools/call" && ADMIN_TOOLS.has(String(m.params?.name)));
+    if (denied) {
+      res.set("WWW-Authenticate", 'Bearer error="insufficient_scope", scope="care:admin"');
+      res.status(403).json(rpcError(-32003, "insufficient_scope: care:admin required, enforced by the server", denied.id ?? null));
+      return;
+    }
+  }
+  const server = buildServer(scope.patientId, scope.role);
   const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
   res.on("close", () => {
     transport.close();
@@ -289,21 +389,24 @@ export async function handleMcp(req: Request, res: Response) {
 }
 
 /**
- * Who is calling /mcp:
- * - "Bearer <app token>"               -> that household only (caregiver app, a household's own agent)
- * - "Bearer <internal agent token>"    -> the household the voice agent is serving
- * - "Bearer <CARECUE_MCP_TOKEN>"       -> the default household (single-home Alexa+ setup)
- * - no CARECUE_MCP_TOKEN configured    -> open, default household (local demo)
+ * Who is calling /mcp, and as what:
+ * - "Bearer <app token>"               -> that household, with the role of that link (caregiver or patient)
+ * - "Bearer <internal agent token>"    -> the household the voice agent is serving, as the patient
+ * - "Bearer <CARECUE_MCP_TOKEN>"       -> the default household (single-home Alexa+ setup), as the patient
+ * - no CARECUE_MCP_TOKEN configured    -> open, default household (local demo), as the patient
+ * Only a caregiver can see or call add_medication and stop_medication.
+ * CARECUE_MCP_OPEN_ROLE=caregiver gives the last two the old all-tools behaviour, for local development only.
  */
-function resolveScope(authorization?: string): number | undefined | "denied" {
+function resolveScope(authorization?: string): { patientId: number | undefined; role: Role } | "denied" {
   const bearer = authorization?.startsWith("Bearer ") ? authorization.slice(7) : undefined;
   if (bearer) {
     const internal = verifyAgentToken(bearer);
-    if (internal) return internal;
+    if (internal) return { patientId: internal, role: "patient" };
     const link = linkFromAppToken(bearer);
-    if (link) return link.patient_id;
+    if (link) return { patientId: link.patient_id, role: link.role };
   }
+  const openRole: Role = process.env.CARECUE_MCP_OPEN_ROLE === "caregiver" && process.env.CARECUE_PUBLIC !== "1" ? "caregiver" : "patient";
   const shared = process.env.CARECUE_MCP_TOKEN;
-  if (!shared) return undefined;
-  return bearer === shared ? undefined : "denied";
+  if (!shared) return { patientId: undefined, role: openRole };
+  return bearer === shared ? { patientId: undefined, role: openRole } : "denied";
 }

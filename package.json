@@ -4,9 +4,11 @@
   "description": "CareCue: a voice-first medication companion for older adults, as an Alexa+ MCP server",
   "main": "index.js",
   "scripts": {
-    "test": "node tests/smoke.ts",
+    "test": "node tests/lexicon.ts && node tests/trace.ts && node tests/smoke.ts",
     "start": "node --env-file-if-exists=.env src/server.ts",
-    "test:limits": "sh scripts/test-limits.sh"
+    "test:limits": "sh scripts/test-limits.sh",
+    "test:lexicon": "node tests/lexicon.ts",
+    "test:trace": "node tests/trace.ts"
   },
   "keywords": [],
   "author": "",

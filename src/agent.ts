@@ -11,6 +11,9 @@ import { agentToken } from "./agent-token.ts";
 import { caregiversOf, crisisLine, emergencyNumber, getPatient, todaySchedule } from "./care.ts";
 import { now, spokenTime, spokenTimeEs } from "./clock.ts";
 import { patientLanguage } from "./households.ts";
+import { buildToolTrace, type ToolAnnotations, type ToolSource, type ToolTrace } from "./trace.ts";
+
+export type { ToolSource, ToolTrace } from "./trace.ts";
 
 // Explicit CARECUE_PROVIDER wins; otherwise a Claude API key is preferred, then AWS credentials.
 const useBedrock =
@@ -31,6 +34,11 @@ const client: Anthropic = useBedrock
 
 const MODEL = process.env.CARECUE_MODEL ?? (useBedrock ? "anthropic.claude-opus-5-5" : "claude-opus-5-5");
 
+/** Provider and model id behind every turn. The one place that says which model is in use (failover extends it). */
+export function modelInfo(): { provider: string; id: string } {
+  return { provider, id: MODEL };
+}
+
 export const SYSTEM = `You are CareCue, a medication companion running on an Alexa+ device in the home of an older adult.
 You are speaking out loud. Reply in the language the person just used (the context line's Language is only the household default) in at most two short sentences, plain words, no lists, no markdown, no emoji.
 Every turn starts with a context line from the device: clock, person, language, caregivers, emergency number and today's doses. Use it, but use the CareCue tools for anything you change or anything not in it; never rely on memory of earlier turns for what was taken.
@@ -44,30 +52,78 @@ ${SERVER_INSTRUCTIONS}`;
 
 // ---------- MCP bridge (one client per household) ----------
 
-type Bridge = { client: Client; tools: Anthropic.Tool[] };
+/** What the server said when we connected: the real initialize result, not a guess. */
+export type Handshake = {
+  protocolVersion: string | null;
+  serverInfo: unknown;
+  capabilities: unknown;
+  instructionsChars: number | null;
+  toolCount: number; // tools this session was offered (10 for the voice agent; a caregiver token sees 12)
+};
+type ListedTool = { name: string; title?: string; annotations: ToolAnnotations | null };
+type Bridge = { client: Client; tools: Anthropic.Tool[]; annotations: Map<string, ToolAnnotations>; listed: ListedTool[]; handshake: Handshake };
 // Changing the prescription list is a caregiver action in the app, never a voice action.
+// (The MCP server enforces this too: the voice token has no admin tools. This is the second wall.)
 const VOICE_BLOCKED = new Set(["add_medication", "stop_medication"]);
 // Tools whose result never changes what is said (unless they fail).
 const FIRE_AND_SPEAK = new Set(["notify_caregiver", "record_checkin"]);
 const bridges = new Map<number, Promise<Bridge>>();
 
+const mcpUrl = () => new URL(process.env.CARECUE_MCP_URL ?? `http://127.0.0.1:${process.env.PORT ?? 8787}/mcp`);
+
+/** A raw POST initialize (protocol 2025-11-25), to read exactly what the server answers. Null if it fails. */
+async function rawInitialize(patientId: number): Promise<{ protocolVersion?: string; serverInfo?: unknown; capabilities?: unknown; instructions?: string } | null> {
+  try {
+    const r = await fetch(mcpUrl(), {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        accept: "application/json, text/event-stream",
+        authorization: `Bearer ${agentToken(patientId)}`,
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "initialize",
+        params: { protocolVersion: "2025-11-25", capabilities: {}, clientInfo: { name: "carecue-handshake", version: "0.1.0" } },
+      }),
+      signal: AbortSignal.timeout(8000),
+    });
+    const body = await r.text();
+    // The server may answer as a one-event stream ("data: {...}") or as plain JSON.
+    const data = body.split("\n").find((l) => l.startsWith("data:"))?.slice(5).trim() ?? body;
+    return (JSON.parse(data) as { result?: { protocolVersion?: string; serverInfo?: unknown; capabilities?: unknown; instructions?: string } }).result ?? null;
+  } catch {
+    return null;
+  }
+}
+
 function bridge(patientId: number): Promise<Bridge> {
   let b = bridges.get(patientId);
   if (!b) {
     b = (async () => {
-      const url = new URL(process.env.CARECUE_MCP_URL ?? `http://127.0.0.1:${process.env.PORT ?? 8787}/mcp`);
-      const transport = new StreamableHTTPClientTransport(url, {
+      const transport = new StreamableHTTPClientTransport(mcpUrl(), {
         requestInit: { headers: { Authorization: `Bearer ${agentToken(patientId)}` } },
       });
       const client = new Client({ name: "carecue-voice-agent", version: "0.2.0" });
       await client.connect(transport);
-      const listed = await client.listTools();
+      const [listed, init] = await Promise.all([client.listTools(), rawInitialize(patientId)]);
       const tools = listed.tools.filter((t) => !VOICE_BLOCKED.has(t.name)).map((t) => ({
         name: t.name,
         description: t.description ?? "",
         input_schema: t.inputSchema as Anthropic.Tool.InputSchema,
       }));
-      return { client, tools };
+      const annotations = new Map<string, ToolAnnotations>();
+      for (const t of listed.tools) if (t.annotations) annotations.set(t.name, t.annotations as ToolAnnotations);
+      const handshake: Handshake = {
+        protocolVersion: init?.protocolVersion ?? transport.protocolVersion ?? null,
+        serverInfo: init?.serverInfo ?? client.getServerVersion() ?? null,
+        capabilities: init?.capabilities ?? client.getServerCapabilities() ?? null,
+        instructionsChars: (init?.instructions ?? client.getInstructions())?.length ?? null,
+        toolCount: listed.tools.length,
+      };
+      const list = listed.tools.map((t) => ({ name: t.name, title: t.title, annotations: annotations.get(t.name) ?? null }));
+      return { client, tools, annotations, listed: list, handshake };
     })();
     b.catch(() => bridges.delete(patientId));
     bridges.set(patientId, b);
@@ -75,19 +131,36 @@ function bridge(patientId: number): Promise<Bridge> {
   return b;
 }
 
-async function callTool(patientId: number, name: string, input: unknown): Promise<{ text: string; isError: boolean }> {
-  if (VOICE_BLOCKED.has(name)) return { text: "Not available by voice: the caregiver manages medicines in the app.", isError: true };
-  const { client } = await bridge(patientId);
+/** The handshake and the tool list (with titles and annotations) this household's voice session saw. */
+export async function bridgeInfo(patientId: number): Promise<{ handshake: Handshake; tools: ListedTool[] }> {
+  const { handshake, listed } = await bridge(patientId);
+  return { handshake, tools: listed };
+}
+
+async function callTool(patientId: number, name: string, input: unknown, source: ToolSource): Promise<{ text: string; isError: boolean; trace: ToolTrace }> {
+  const started = Date.now();
+  const finish = (text: string, isError: boolean, annotations: ToolAnnotations | null) => ({
+    text,
+    isError,
+    trace: buildToolTrace({ name, input, text, isError, ms: Date.now() - started, annotations, source }),
+  });
+  if (VOICE_BLOCKED.has(name)) return finish("Not available by voice: the caregiver manages medicines in the app.", true, null);
+  const { client, annotations } = await bridge(patientId);
   try {
     const r = await client.callTool({ name, arguments: (input ?? {}) as Record<string, unknown> });
     const text = (r.content as Array<{ type: string; text?: string }>)
       .filter((b) => b.type === "text")
       .map((b) => b.text)
       .join("\n");
-    return { text: text || "(no output)", isError: !!r.isError };
+    return finish(text || "(no output)", !!r.isError, annotations.get(name) ?? null);
   } catch (err) {
-    return { text: `Tool error: ${(err as Error).message}`, isError: true };
+    return finish(`Tool error: ${(err as Error).message}`, true, annotations.get(name) ?? null);
   }
+}
+
+/** One MCP tools/call through the household's own bridge, with no model involved (probes and the touch path). */
+export async function callToolDirect(patientId: number, name: string, args: unknown, source: ToolSource = "probe"): Promise<ToolTrace> {
+  return (await callTool(patientId, name, args, source)).trace;
 }
 
 // ---------- conversations ----------
@@ -132,7 +205,12 @@ function contextLine(patientId: number): string {
   );
 }
 
-export type AgentTurn = { reply: string; toolCalls: Array<{ name: string; input: unknown; isError: boolean }> };
+export type AgentTurn = {
+  reply: string;
+  toolCalls: ToolTrace[]; // name, input and isError as before, plus ms, result, ok, guard, effect, annotations, source
+  ms: number; // wall time of the whole turn
+  model: { provider: string; id: string };
+};
 
 const locks = new Map<string, Promise<unknown>>();
 
@@ -184,7 +262,7 @@ export function chat(conversationId: string, userText: string, patientId: number
 async function chatTurn(key: string, userText: string, patientId: number, retried = false): Promise<AgentTurn> {
   const { tools } = await bridge(patientId);
   const convo = conversation(key);
-  const toolCalls: AgentTurn["toolCalls"] = [];
+  const toolCalls: ToolTrace[] = [];
   const es = speaksSpanish(userText, patientId);
   const mark = convo.messages.length;
 
@@ -201,6 +279,7 @@ async function chatTurn(key: string, userText: string, patientId: number, retrie
   };
 
   const started = Date.now();
+  const done = (reply: string): AgentTurn => ({ reply, toolCalls, ms: Date.now() - started, model: modelInfo() });
   const timing: string[] = [];
   const logTiming = () => console.log(`[agent] turn ${Date.now() - started} ms (${timing.join(", ")})`);
 
@@ -224,7 +303,7 @@ async function chatTurn(key: string, userText: string, patientId: number, retrie
 
       if (response.stop_reason === "refusal") {
         resetConversation(key);
-        return { reply: fallbackReply("refusal", es, emergencyNumber(patientId)), toolCalls };
+        return done(fallbackReply("refusal", es, emergencyNumber(patientId)));
       }
 
       convo.messages.push({ role: "assistant", content: response.content });
@@ -237,14 +316,14 @@ async function chatTurn(key: string, userText: string, patientId: number, retrie
           .join(" ")
           .trim();
         logTiming();
-        return { reply: reply || fallbackReply("lost", es, emergencyNumber(patientId)), toolCalls };
+        return done(reply || fallbackReply("lost", es, emergencyNumber(patientId)));
       }
 
       const tt = Date.now();
       const results = await Promise.all(
         uses.map(async (u) => {
-          const r = await callTool(patientId, u.name, u.input);
-          toolCalls.push({ name: u.name, input: u.input, isError: r.isError });
+          const r = await callTool(patientId, u.name, u.input, "model");
+          toolCalls.push(r.trace);
           return { type: "tool_result" as const, tool_use_id: u.id, content: r.text, is_error: r.isError };
         }),
       );
@@ -265,11 +344,11 @@ async function chatTurn(key: string, userText: string, patientId: number, retrie
       ) {
         timing.push("early-reply");
         logTiming();
-        return { reply: early, toolCalls };
+        return done(early);
       }
     }
     rollback(); // drop the unfinished turn so the next one starts from a valid history
-    return { reply: fallbackReply("lost", es, emergencyNumber(patientId)), toolCalls };
+    return done(fallbackReply("lost", es, emergencyNumber(patientId)));
   } catch (err) {
     rollback();
     const status = (err as { status?: number }).status;

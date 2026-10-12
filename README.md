@@ -84,7 +84,7 @@ Requires **Node 22.13+** (uses the built-in `node:sqlite` and native TypeScript)
 npm install
 cp .env.example .env      # add AWS (Bedrock) or Claude API credentials for the voice agent
 npm start                 # http://localhost:8787
-npm test                  # end-to-end check of the MCP server (in another terminal)
+npm test                  # lexicon + trace unit checks, then the end-to-end check of the MCP server (server running in another terminal)
 ```
 
 - **MCP endpoint:** `http://localhost:8787/mcp` — point Alexa+ or any MCP client (MCP Inspector, Claude Desktop, Kiro) at it. Set `CARECUE_MCP_TOKEN` to require a bearer token.
@@ -119,7 +119,7 @@ CareCue stores only what a family enters: first names, medicine names, doses, ti
 - Emergencies use the local number (131 in Chile, 911 in the US), and hopeless talk gets an urgent caregiver alert, a direct safety question and the crisis line (*4141 in Chile, 988 in the US).
 - The **double-dose guard** lives in code, not in the prompt: `log_dose` refuses a second "taken" for a dose that is already taken, and refuses doses more than 60 minutes early.
 - Every caregiver alert is stored and visible; a late confirmation resolves it so families aren't left worrying.
-- Medication changes (`add_medication`, `stop_medication`) are caregiver-only: the voice agent cannot call them.
+- Medication changes (`add_medication`, `stop_medication`) are caregiver-only, enforced by the MCP server: only a caregiver app token lists or can call them (everyone else sees 10 tools, and a direct call gets HTTP 403 `insufficient_scope`). The voice agent also blocks them on its side. Every tool carries MCP annotations (read-only, destructive, idempotent) and a title.
 
 ## Built with
 

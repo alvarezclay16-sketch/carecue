@@ -26,7 +26,12 @@ const call = async (name: string, args: Record<string, unknown> = {}) => {
   process.env.CARECUE_DB = path.join(mkdtempSync(path.join(tmpdir(), "carecue-frozen-")), "t.db");
   const frozen = JSON.parse(readFileSync(new URL("./frozen.json", import.meta.url), "utf8"));
   const sha = (s: string) => createHash("sha256").update(s, "utf8").digest("hex");
-  const { SERVER_INSTRUCTIONS } = await import("../src/mcp.ts");
+  const { SERVER_INSTRUCTIONS, ADMIN_TOOLS, toolNamesFor } = await import("../src/mcp.ts");
+  const patientTools = await toolNamesFor("patient");
+  const caregiverTools = await toolNamesFor("caregiver");
+  assert.equal(patientTools.length, 10);
+  assert.equal(caregiverTools.length, 12);
+  assert.deepEqual(caregiverTools.filter((n) => !patientTools.includes(n)).sort(), [...ADMIN_TOOLS].sort());
   const { SYSTEM } = await import("../src/agent.ts");
   assert.equal(sha(SERVER_INSTRUCTIONS), frozen.SERVER_INSTRUCTIONS, "SERVER_INSTRUCTIONS changed: it is frozen");
   assert.equal(sha(SYSTEM), frozen.SYSTEM, "SYSTEM changed: it is frozen");
@@ -36,9 +41,101 @@ const call = async (name: string, args: Record<string, unknown> = {}) => {
 await post("/api/reset", {});
 console.log("protocol:", transport.protocolVersion ?? "(negotiated)");
 
+// Roles are enforced by the server: an anonymous (patient) session lists 10 tools, a caregiver token lists 12.
+const ADMIN = ["add_medication", "stop_medication"];
+const MCP_HEADERS = { "content-type": "application/json", accept: "application/json, text/event-stream" };
+const rpc = (id: number, method: string, params: unknown, headers: Record<string, string> = {}) =>
+  fetch(base + "/mcp", { method: "POST", headers: { ...MCP_HEADERS, ...headers }, body: JSON.stringify({ jsonrpc: "2.0", id, method, params }) });
+const clientWith = async (token: string) => {
+  const c = new Client({ name: "smoke-" + token.slice(0, 4), version: "1.0.0" });
+  await c.connect(new StreamableHTTPClientTransport(new URL(base + "/mcp"), { requestInit: { headers: { Authorization: `Bearer ${token}` } } }));
+  return c;
+};
+
 const { tools } = await client.listTools();
 console.log("tools:", tools.map((t) => t.name).join(", "));
-assert.ok(tools.length >= 12);
+assert.equal(tools.length, 10, "an anonymous session lists the 10 daily tools");
+assert.ok(!tools.some((t) => ADMIN.includes(t.name)), "no admin tools without a caregiver token");
+
+// A caregiver app token (from creating a household) lists all 12, with a title and annotations on every one.
+const created = await post("/api/app/households", { patientName: "Smoke Test", caregiverName: "Caro", language: "en" });
+assert.ok(created.token, "household created");
+const caregiver = await clientWith(created.token);
+const all = (await caregiver.listTools()).tools;
+assert.equal(all.length, 12);
+for (const t of all) {
+  assert.ok(t.title, `${t.name} has a title`);
+  assert.ok(t.annotations && typeof t.annotations.readOnlyHint === "boolean", `${t.name} has annotations`);
+}
+const ann = (n: string) => all.find((t) => t.name === n)!.annotations!;
+assert.equal(ann("stop_medication").destructiveHint, true);
+assert.equal(ann("log_dose").destructiveHint, false);
+assert.equal(ann("log_dose").idempotentHint, true);
+assert.equal(ann("get_today_schedule").readOnlyHint, true);
+assert.equal(ann("notify_caregiver").openWorldHint, true);
+assert.equal(ann("record_refill").idempotentHint, false);
+console.log("annotations: 12/12 tools have a title and annotations");
+
+// The caregiver can change medicines; a patient-role token and an anonymous call get 403 insufficient_scope.
+const added = JSON.parse(((await caregiver.callTool({ name: "add_medication", arguments: { name: "Smokezol", dose: "5 mg", times: ["09:00"] } })).content as Array<{ text: string }>)[0].text);
+assert.notEqual(added.ok, false, "caregiver add_medication works");
+const paired = await fetch(base + "/api/app/pair-codes", {
+  method: "POST",
+  headers: { "content-type": "application/json", authorization: `Bearer ${created.token}` },
+  body: JSON.stringify({ target: "app_patient" }),
+}).then((r) => r.json());
+const joined = await post("/api/app/join", { code: paired.code });
+assert.equal(joined.role, "patient");
+const patientApp = await clientWith(joined.token);
+assert.equal((await patientApp.listTools()).tools.length, 10, "a patient app token lists 10 tools");
+for (const headers of [{}, { Authorization: `Bearer ${joined.token}` }] as Array<Record<string, string>>) {
+  const r = await rpc(9, "tools/call", { name: "stop_medication", arguments: { medication: "Smokezol" } }, headers);
+  assert.equal(r.status, 403, "stop_medication from a non-caregiver is 403");
+  const www = r.headers.get("www-authenticate") ?? "";
+  assert.ok(www.includes("insufficient_scope") && www.includes("care:admin"), "WWW-Authenticate names the scope");
+  assert.equal((await r.json()).error.code, -32003);
+}
+// a batch with an admin call hidden inside is refused as a whole
+const batch = await fetch(base + "/mcp", {
+  method: "POST",
+  headers: MCP_HEADERS,
+  body: JSON.stringify([
+    { jsonrpc: "2.0", id: 1, method: "tools/list" },
+    { jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "add_medication", arguments: { name: "Sneaky", dose: "1", times: ["10:00"] } } },
+  ]),
+});
+assert.equal(batch.status, 403);
+const meds = JSON.parse(((await caregiver.callTool({ name: "list_medications", arguments: {} })).content as Array<{ text: string }>)[0].text);
+assert.deepEqual(meds.map((m: { name: string }) => m.name), ["Smokezol"], "refused admin calls changed nothing");
+await caregiver.callTool({ name: "stop_medication", arguments: { medication: "Smokezol" } });
+assert.equal(JSON.parse(((await caregiver.callTool({ name: "list_medications", arguments: {} })).content as Array<{ text: string }>)[0].text).length, 0);
+console.log("roles: patient 10 / caregiver 12, admin calls from others -> 403 insufficient_scope, data unchanged");
+
+// The voice agent's own token is a patient token too (needs the server's CARECUE_SECRET to mint one here).
+if (process.env.CARECUE_SECRET) {
+  const { agentToken } = await import("../src/agent-token.ts");
+  const demoMeds = await call("list_medications");
+  const agent = await clientWith(agentToken(1));
+  assert.equal((await agent.listTools()).tools.length, 10, "the agent token lists 10 tools");
+  const r = await rpc(10, "tools/call", { name: "stop_medication", arguments: { medication: demoMeds[0].name } }, { Authorization: `Bearer ${agentToken(1)}` });
+  assert.equal(r.status, 403);
+  assert.ok((r.headers.get("www-authenticate") ?? "").includes("insufficient_scope"));
+  assert.equal((await call("list_medications")).length, demoMeds.length, "the agent token could not remove a medicine");
+  await agent.close();
+  console.log("agent token: 10 tools, stop_medication -> 403, medicine still active");
+}
+await patientApp.close();
+await caregiver.close();
+
+// Origin check: a browser page from another site is refused; no Origin (SDK, Alexa+, curl) and the same origin are fine.
+const init = { protocolVersion: "2025-11-25", capabilities: {}, clientInfo: { name: "smoke", version: "1" } };
+assert.equal((await rpc(11, "initialize", init, { Origin: "https://evil.example" })).status, 403, "foreign Origin is refused");
+assert.equal((await rpc(12, "initialize", init, { Origin: "null" })).status, 403, "opaque Origin is refused");
+assert.equal((await rpc(13, "initialize", init)).status, 200, "no Origin is fine");
+assert.equal((await rpc(14, "initialize", init, { Origin: new URL(base).origin })).status, 200, "same-origin is fine");
+const initBody = await (await rpc(15, "initialize", init)).text();
+assert.ok(initBody.includes("2025-11-25"), "initialize answers protocol 2025-11-25");
+console.log("origin check: evil.example -> 403, no Origin -> 200");
 
 // 7:50 AM — nothing due yet.
 await post("/api/clock", { time: "07:50" });

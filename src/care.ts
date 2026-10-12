@@ -2,6 +2,7 @@
 // No medical decisions live here: CareCue only follows the schedule the prescription gives it.
 
 import { db, type Alert, type Caregiver, type Dose, type Medication, type Patient } from "./db.ts";
+import { fold } from "./fold.ts";
 import { atLocal, localDate, localTime, now, spokenTime, spokenTimeEs } from "./clock.ts";
 
 // ---------- lookups ----------
@@ -62,10 +63,7 @@ export function findMedication(patientId: number, name: string): Medication | un
   );
 }
 
-/** Lowercase, no accents, no punctuation: "Losartán " -> "losartan". */
-export function fold(s: string): string {
-  return s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9 ]/g, "").trim();
-}
+export { fold };
 
 // ---------- schedule ----------
 
