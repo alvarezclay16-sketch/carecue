@@ -13,7 +13,7 @@ Screen: the CareCue simulator full screen (Alexa+ device on the left, Daniel's p
 | 1:35–1:50 | Press mic: "Sorry, I took it a bit late." → alert on the phone turns "resolved" | VO: "A late confirmation resolves the alert, so Daniel isn't left worrying." |
 | 1:50–2:05 | Refill alert on the phone; mic: "I picked up 30 more Losartan." | Device: "Added 30 Losartan. That's about a month of supply." |
 | 2:05–2:20 | Switch to ES, mic in Spanish: "¿Qué me toca ahora?" → Spanish answer | VO: "It answers in the language Rosa speaks." |
-| 2:20–2:40 | Architecture slide: Alexa+ → MCP (Streamable HTTP, 2025-11-25) → CareCue server; Claude on Amazon Bedrock; tools list | VO: "Under the hood, CareCue is a self-hosted MCP server with twelve tools. Alexa+ — or here, Claude on Amazon Bedrock — calls them to remind, log, guard, and escalate. It never gives medical advice: it only follows the prescription. CareCue. Peace of mind, on the kitchen counter." |
+| 2:20–2:40 | Architecture slide: Alexa+ → MCP (Streamable HTTP, 2025-11-25) → CareCue server; Claude as the voice agent; tools list | VO: "Under the hood, CareCue is a self-hosted MCP server with twelve tools. Alexa+ — or here, Claude on Amazon Bedrock — calls them to remind, log, guard, and escalate. It never gives medical advice: it only follows the prescription. CareCue. Peace of mind, on the kitchen counter." |
 
 ## Recording notes
 - Reset the demo first ("Reset demo"), set the window to 1920×1080, Chrome at 100 % zoom.

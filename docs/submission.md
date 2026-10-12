@@ -5,6 +5,7 @@
 **Track:** Alexa+ · **Mini challenges:** AWS Builder, Open Source
 **Repo:** https://github.com/alvarezclay16-sketch/carecue (MIT)
 **Live server:** https://98-86-85-249.sslip.io (simulator at `/`, mobile web app at `/app`, MCP at `/mcp`, Alexa endpoint at `/alexa`)
+**Demo video (2:52):** _paste the YouTube/Vimeo link here_ (file: `ENTREGA/CareCue-demo.mp4`)
 
 ## What it does
 CareCue helps an older adult living at home take the right medicine at the right time, by voice, and keeps the family in the loop without phone calls every morning.
@@ -14,6 +15,7 @@ CareCue helps an older adult living at home take the right medicine at the right
 - **Double-dose guard** in code: a second "taken" for the same dose is refused with a clear "please don't take another one".
 - Missed dose → after 45 minutes the caregiver gets an alert; a late confirmation resolves it.
 - Refill forecasting and alerts; "I picked up 30 more" adds them back.
+- Safety rules tested over seven QA rounds: a hedged "I think I took it" is never logged; emergencies get the local number (131 in Chile, 911 in the US) and an urgent family alert; hopeless talk gets a direct safety question and the crisis line (*4141 / 988).
 - "I don't feel well" → check-in + caregiver alert; emergencies → "call emergency services now" + urgent alert.
 - English and Spanish.
 
