@@ -137,8 +137,8 @@ export function hhmm(clock: string, offset: number): string {
 function realLocalMinutes(): number {
   const tz = process.env.CARECUE_TZ ?? process.env.TZ ?? "America/Santiago";
   const parts = new Intl.DateTimeFormat("en-GB", { timeZone: tz, hour: "2-digit", minute: "2-digit", hour12: false }).formatToParts(new Date());
-  const get = (t: string) => Number(parts.find((p) => p.type === t)!.value) % 24;
-  return get("hour") * 60 + get("minute");
+  const get = (t: string) => Number(parts.find((p) => p.type === t)!.value);
+  return (get("hour") % 24) * 60 + get("minute"); // en-GB can print hour 24 for midnight; the minutes must not be reduced
 }
 
 // ---------- server ----------
