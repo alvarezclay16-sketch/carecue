@@ -1,5 +1,6 @@
-// Which Claude models can this Bedrock key call? Converse on bedrock-runtime, one tiny request per id.
-// Run: node --env-file=.env scripts/probe-bedrock.mjs   (prints id / HTTP status / latency; never the key)
+// Which Claude models can this Bedrock key call? Converse on bedrock-runtime, one tiny request per id, plus what the Bedrock
+// control plane says about the same model (GetFoundationModelAvailability: the "agreement" column explains a 403).
+// Run: node --env-file=.env scripts/probe-bedrock.mjs   (prints id / HTTP status / latency / agreement; never the key)
 const token = process.env.AWS_BEARER_TOKEN_BEDROCK;
 const region = process.env.AWS_REGION ?? "us-east-1";
 if (!token) {
@@ -17,7 +18,21 @@ const CANDIDATES = [
 ];
 const pad = (s, n) => String(s).padEnd(n);
 console.log(`region ${region}  endpoint bedrock-runtime.${region}.amazonaws.com  ${new Date().toISOString().slice(0, 10)}`);
-console.log(pad("model id", 48) + pad("status", 8) + pad("latency", 10) + "note");
+console.log(pad("model id", 48) + pad("status", 8) + pad("latency", 10) + pad("agreement", 15) + "note");
+
+// Same key, control plane (bedrock, not bedrock-runtime). The id has no us./global. prefix there.
+async function agreement(id) {
+  try {
+    const r = await fetch(`https://bedrock.${region}.amazonaws.com/foundation-model-availability/${encodeURIComponent(id.replace(/^(us|eu|apac|global)\./, ""))}`, {
+      headers: { authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(20000),
+    });
+    if (!r.ok) return `HTTP ${r.status}`;
+    return (await r.json()).agreementAvailability?.status ?? "?";
+  } catch {
+    return "ERR";
+  }
+}
 for (const id of CANDIDATES) {
   const t = Date.now();
   let status = "ERR", note = "";
@@ -35,5 +50,5 @@ for (const id of CANDIDATES) {
   } catch (e) {
     note = (e.name === "TimeoutError" ? "timeout" : e.message).slice(0, 90);
   }
-  console.log(pad(id, 48) + pad(status, 8) + pad(`${Date.now() - t} ms`, 10) + note);
+  console.log(pad(id, 48) + pad(status, 8) + pad(`${Date.now() - t} ms`, 10) + pad(await agreement(id), 15) + note);
 }

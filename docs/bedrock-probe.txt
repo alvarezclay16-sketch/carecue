@@ -1,9 +1,9 @@
-region us-east-1  endpoint bedrock-runtime.us-east-1.amazonaws.com  2026-10-12
-model id                                        status  latency   note
-us.anthropic.claude-opus-4-6-v1                 200     2254 ms   reply "ok"
-us.anthropic.claude-opus-4-5-20251101-v1:0      200     1735 ms   reply "ok"
-us.anthropic.claude-sonnet-4-6                  200     1125 ms   reply "ok"
-us.anthropic.claude-sonnet-4-5-20250929-v1:0    200     1727 ms   reply "ok"
-us.anthropic.claude-haiku-4-5-20251001-v1:0     200     968 ms    reply "ok"
-anthropic.claude-opus-5-5                       403     360 ms    anthropic.claude-opus-5-5 is not available for this account. You can explore other availab
-global.anthropic.claude-opus-4-8                403     371 ms    anthropic.claude-opus-4-8 is not available for this account. You can explore other availab
+region us-east-1  endpoint bedrock-runtime.us-east-1.amazonaws.com  2026-10-13
+model id                                        status  latency   agreement      note
+us.anthropic.claude-opus-4-6-v1                 200     1936 ms   AVAILABLE      reply "ok"
+us.anthropic.claude-opus-4-5-20251101-v1:0      200     1562 ms   AVAILABLE      reply "ok"
+us.anthropic.claude-sonnet-4-6                  200     953 ms    AVAILABLE      reply "ok"
+us.anthropic.claude-sonnet-4-5-20250929-v1:0    200     2003 ms   AVAILABLE      reply "ok"
+us.anthropic.claude-haiku-4-5-20251001-v1:0     200     920 ms    AVAILABLE      reply "ok"
+anthropic.claude-opus-5-5                       403     344 ms    NOT_AVAILABLE  anthropic.claude-opus-5-5 is not available for this account. You can explore other availab
+global.anthropic.claude-opus-4-8                403     390 ms    NOT_AVAILABLE  anthropic.claude-opus-4-8 is not available for this account. You can explore other availab
