@@ -12,7 +12,11 @@
 // Each scenario runs in its own fresh household; a failing scenario is rerun once in another fresh household.
 // Flags: --only ids, --tag tag, --cell id[,id], --matrix, --mode agent|bare|both, --attempts N (default 2),
 //        --budget-turns N (default 800 model turns per run), --concurrency N (default 2: Bedrock throttles quickly, and latency is only comparable at the same load), --capture dir,
-//        --port-base N, --calibrate (full suite, but kept out of the scorecard), --dry, --no-report.
+//        --port-base N, --calibrate (full suite, but kept out of the scorecard), --dry, --no-report,
+//        --no-addendum (the server runs without the Bedrock-only addendum: the "before" side of an A/B; recorded in the run file),
+//        --resume <run file> (rerun only the scenarios that never got a verdict, in the same configuration as that file).
+// Failover cells (not in the matrix, pick them with --cell): api-down-opus-4-6 (Claude API primary always fails, Bedrock Opus 4.6 answers every call),
+// api-then-opus-4-6 (every second model call fails, so conversations cross providers mid-turn) and the same two for sonnet-4-5.
 
 import { spawn, execFileSync, type ChildProcess } from "node:child_process";
 import { createServer } from "node:net";
@@ -33,14 +37,29 @@ const CLOCK = "11:00"; // the server clock during a run: relative dose times nev
 
 // ---------- the matrix ----------
 
-export type Cell = { id: string; label: string; provider?: "anthropic" | "bedrock"; model?: string };
+export type Cell = {
+  id: string;
+  label: string;
+  provider?: "anthropic" | "bedrock";
+  model?: string;
+  failover?: { bedrock: string; fake: "1" | "alt" }; // Claude API first, this Bedrock model as failover; the primary is made to fail (eval only)
+};
 export const CELLS: Cell[] = [
   { id: "opus-5-5", label: "Claude Opus 5.5 (Claude API, production baseline)", provider: "anthropic", model: "claude-opus-5-5" },
   { id: "opus-4-6", label: "Claude Opus 4.6 (Amazon Bedrock)", provider: "bedrock", model: "us.anthropic.claude-opus-4-6-v1" },
   { id: "sonnet-4-5", label: "Claude Sonnet 4.5 (Amazon Bedrock)", provider: "bedrock", model: "us.anthropic.claude-sonnet-4-5-20250929-v1:0" },
   { id: "haiku-4-5", label: "Claude Haiku 4.5 (Amazon Bedrock)", provider: "bedrock", model: "us.anthropic.claude-haiku-4-5-20251001-v1:0" },
 ];
+// Claude API -> Bedrock failover, the direction a shipping configuration would use. Not part of the matrix.
+const FAILOVER_CELLS: Cell[] = [
+  { id: "api-down-opus-4-6", label: "Claude API down, Amazon Bedrock Opus 4.6 answers (failover, every call)", failover: { bedrock: "us.anthropic.claude-opus-4-6-v1", fake: "1" } },
+  { id: "api-then-opus-4-6", label: "Claude API then Amazon Bedrock Opus 4.6 (failover, every second call)", failover: { bedrock: "us.anthropic.claude-opus-4-6-v1", fake: "alt" } },
+  { id: "api-down-sonnet-4-5", label: "Claude API down, Amazon Bedrock Sonnet 4.5 answers (failover, every call)", failover: { bedrock: "us.anthropic.claude-sonnet-4-5-20250929-v1:0", fake: "1" } },
+  { id: "api-then-sonnet-4-5", label: "Claude API then Amazon Bedrock Sonnet 4.5 (failover, every second call)", failover: { bedrock: "us.anthropic.claude-sonnet-4-5-20250929-v1:0", fake: "alt" } },
+];
+const ALL_CELLS = [...CELLS, ...FAILOVER_CELLS];
 const CURRENT: Cell = { id: "current", label: "current environment" };
+let noAddendum = false;
 
 // ---------- arguments ----------
 
@@ -146,7 +165,8 @@ const STRIP = [
   "ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN", // an eval must reach the provider directly, not through a proxy
   "CARECUE_PUBLIC", "CARECUE_PUBLIC_URL", "CARECUE_FAKE_AGENT", "CARECUE_FAKE_PRIMARY_FAIL", "CARECUE_AGENT_PAUSED", "CARECUE_MCP_TOKEN",
   "CARECUE_ALERT_WEBHOOK", // test alerts must never reach a real phone
-  "CARECUE_EMERGENCY_NUMBER", "CARECUE_CRISIS_LINE", "CARECUE_PROVIDER", "CARECUE_MODEL", "CARECUE_FALLBACK_MODEL", "CARECUE_MCP_OPEN_ROLE",
+  "CARECUE_EMERGENCY_NUMBER", "CARECUE_CRISIS_LINE", "CARECUE_PROVIDER", "CARECUE_MODEL", "CARECUE_FALLBACK_MODEL", "CARECUE_ANTHROPIC_MODEL", "CARECUE_MCP_OPEN_ROLE",
+  "CARECUE_BEDROCK_ADDENDUM",
 ];
 
 const children = new Set<ChildProcess>();
@@ -168,12 +188,18 @@ async function startServer(cell: Cell, portBase?: number): Promise<Server> {
     CARECUE_DEMO: "0", // no demo controls and no warm-up call
     ALEXA_SKIP_VERIFY: "1",
   });
-  if (cell.provider) env.CARECUE_PROVIDER = cell.provider;
+  if (cell.failover) {
+    env.CARECUE_PROVIDER = "anthropic-first";
+    env.CARECUE_MODEL = cell.failover.bedrock; // the Bedrock failover model
+    env.CARECUE_ANTHROPIC_MODEL = "claude-opus-5-5"; // the production primary
+    env.CARECUE_FAKE_PRIMARY_FAIL = cell.failover.fake; // honoured only because CARECUE_EVAL=1
+  } else if (cell.provider) env.CARECUE_PROVIDER = cell.provider;
   if (cell.model) env.CARECUE_MODEL = cell.model;
-  else if (!cell.provider) {
+  else if (!cell.provider && !cell.failover) {
     // "current": whatever the caller's environment says
-    for (const k of ["CARECUE_PROVIDER", "CARECUE_MODEL", "CARECUE_FALLBACK_MODEL"]) if (process.env[k]) env[k] = process.env[k]!;
+    for (const k of ["CARECUE_PROVIDER", "CARECUE_MODEL", "CARECUE_FALLBACK_MODEL", "CARECUE_ANTHROPIC_MODEL"]) if (process.env[k]) env[k] = process.env[k]!;
   }
+  if (noAddendum) env.CARECUE_BEDROCK_ADDENDUM = "0";
   const log = path.join(dir, "server.log");
   const fd = openSync(log, "w");
   const proc = spawn(process.execPath, ["--env-file-if-exists=.env", "src/server.ts"], { cwd: ROOT, env, stdio: ["ignore", fd, fd] });
@@ -408,6 +434,9 @@ async function runCell(cell: Cell, mode: "agent" | "bare", scenarios: Scenario[]
     const cfg = info.configured;
     if (cell.provider === "bedrock" && (cfg.primary !== "Amazon Bedrock" || cfg.fallback)) throw new Error(`cell ${cell.id}: expected Bedrock only, the server says ${JSON.stringify(cfg)}`);
     if (cell.provider === "anthropic" && (cfg.primary !== "Claude API" || cfg.fallback)) throw new Error(`cell ${cell.id}: expected the Claude API only, the server says ${JSON.stringify(cfg)}`);
+    if (cell.failover && (cfg.primary !== "Claude API" || cfg.fallback?.provider !== "Amazon Bedrock" || cfg.fallback.model !== cell.failover.bedrock))
+      throw new Error(`cell ${cell.id}: expected Claude API -> Bedrock ${cell.failover.bedrock}, the server says ${JSON.stringify(cfg)}`);
+    if (info.bedrock_addendum?.enabled === undefined) throw new Error("/api/model does not report bedrock_addendum; is this the current server?");
     console.log(`\n== ${cell.id} / ${mode}: ${cfg.primary} ${cfg.model}${cfg.fallback ? " (+failover)" : ""}  server ${server.base}  ${scenarios.length} scenarios, up to ${maxAttempts} attempts, ${concurrency} at a time`);
     const counter = { turns: 0, limit };
     const capture = str("capture") ? path.resolve(str("capture")!, `${cell.id}-${mode}`) : undefined;
@@ -431,7 +460,8 @@ async function runCell(cell: Cell, mode: "agent" | "bare", scenarios: Scenario[]
       git_sha: git.sha,
       git_dirty: git.dirty,
       node: process.version,
-      cell: { id: cell.id, label: cell.label, provider: cfg.primary, model: cfg.model, failover_configured: !!cfg.fallback },
+      cell: { id: cell.id, label: cell.label, provider: cfg.primary, model: cfg.fallback && cell.failover ? `${cfg.model} -> ${cfg.fallback.model}` : cfg.model, failover_configured: !!cfg.fallback },
+      addendum: { enabled: !!info.bedrock_addendum.enabled, sha256: String(info.bedrock_addendum.sha256) },
       mode,
       attempts_max: maxAttempts,
       concurrency,
@@ -461,7 +491,8 @@ async function resume(file: string) {
     console.log("nothing to resume: every scenario in that run has a verdict");
     process.exit(0);
   }
-  const cell = CELLS.find((c) => c.id === run.cell.id) ?? CURRENT;
+  const cell = ALL_CELLS.find((c) => c.id === run.cell.id) ?? CURRENT;
+  noAddendum = run.addendum ? !run.addendum.enabled : true; // a run file from before the addendum existed was made without it
   const redo = await runCell(cell, run.mode, SCENARIOS.filter((x) => ids.includes(x.id)), false);
   for (const r of redo.scenarios) run.scenarios[run.scenarios.findIndex((x) => x.id === r.id)] = r;
   run.budget.turns_used += redo.budget.turns_used;
@@ -498,6 +529,7 @@ async function main() {
     console.error("no scenarios selected");
     process.exit(2);
   }
+  noAddendum = !!args["no-addendum"];
   if (str("resume")) return void (await resume(str("resume")!));
   const full = !only && !tag && !args.calibrate; // a calibration run is written to data/safety-partial and never reaches the scorecard
 
@@ -505,9 +537,9 @@ async function main() {
   if (args.matrix) cells = CELLS;
   else if (str("cell")) {
     cells = str("cell")!.split(",").map((id) => {
-      const c = CELLS.find((x) => x.id === id.trim());
+      const c = ALL_CELLS.find((x) => x.id === id.trim());
       if (!c) {
-        console.error(`unknown cell ${id}; known: ${CELLS.map((x) => x.id).join(", ")}`);
+        console.error(`unknown cell ${id}; known: ${ALL_CELLS.map((x) => x.id).join(", ")}`);
         process.exit(2);
       }
       return c;

@@ -34,10 +34,17 @@ const call = async (name: string, args: Record<string, unknown> = {}) => {
   assert.equal(patientTools.length, 10);
   assert.equal(caregiverTools.length, 12);
   assert.deepEqual(caregiverTools.filter((n) => !patientTools.includes(n)).sort(), [...ADMIN_TOOLS].sort());
-  const { SYSTEM } = await import("../src/agent.ts");
+  const { SYSTEM, BEDROCK_ADDENDUM, SYSTEM_BLOCKS, promptFor } = await import("../src/agent.ts");
   assert.equal(sha(SERVER_INSTRUCTIONS), frozen.SERVER_INSTRUCTIONS, "SERVER_INSTRUCTIONS changed: it is frozen");
   assert.equal(sha(SYSTEM), frozen.SYSTEM, "SYSTEM changed: it is frozen");
-  console.log("frozen prompts: hashes match");
+  assert.equal(sha(BEDROCK_ADDENDUM), frozen.BEDROCK_ADDENDUM, "BEDROCK_ADDENDUM changed: re-run the Bedrock cells and update tests/frozen.json together with it");
+  // The addendum reaches the production prompt only when Bedrock answers; the Claude API and any other prompt (bare mode) never see it.
+  assert.equal(promptFor("anthropic", SYSTEM_BLOCKS), SYSTEM_BLOCKS, "the Claude API prompt is untouched");
+  assert.equal(promptFor("bedrock", SYSTEM_BLOCKS)[0].text, `${SYSTEM}\n\n${BEDROCK_ADDENDUM}`, "Bedrock gets SYSTEM + addendum");
+  assert.equal(promptFor("bedrock", SYSTEM_BLOCKS).length, 1);
+  const bare = [{ type: "text" as const, text: "bare role" }];
+  assert.equal(promptFor("bedrock", bare), bare, "bare-client mode never gets the addendum");
+  console.log("frozen prompts: hashes match; Bedrock addendum applies to Bedrock only");
 }
 
 await post("/api/reset", {});

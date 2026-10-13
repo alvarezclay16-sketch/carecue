@@ -1,7 +1,9 @@
 // Provider tests against running servers (live model calls, a few cents):
 //   node tests/bedrock.ts <liveBase> [failoverBase]
 //   liveBase:     a server started with CARECUE_PROVIDER=bedrock or auto (default env + the bearer token). Prints SKIP when it has no Bedrock.
-//   failoverBase: a server started with CARECUE_PROVIDER=auto CARECUE_EVAL=1 CARECUE_FAKE_PRIMARY_FAIL=1 (primary throws a 429-like error).
+//   failoverBase: a server started with CARECUE_PROVIDER=auto CARECUE_EVAL=1 CARECUE_FAKE_PRIMARY_FAIL=1 (primary throws a 429-like error):
+//                 Bedrock -> Claude API. Started with CARECUE_PROVIDER=anthropic-first instead: Claude API -> Bedrock (the Bedrock model
+//                 then answers every turn, with the Bedrock-only addendum). With CARECUE_FAKE_PRIMARY_FAIL=alt every second model call fails.
 import assert from "node:assert/strict";
 
 const post = (base: string, path: string, body: unknown, token?: string) =>
@@ -53,21 +55,23 @@ if (m0.configured?.primary !== "Amazon Bedrock") {
 if (!failBase) console.log("SKIP failover: no second server given");
 else {
   const f0 = await modelOf(failBase);
-  assert.equal(f0.configured?.primary, "Amazon Bedrock");
   assert.ok(f0.configured?.fallback, "a fallback is configured");
+  const fallbackLabel = `${f0.configured.fallback.provider} (failover)`;
+  console.log(`failover direction: ${f0.configured.primary} -> ${f0.configured.fallback.provider}`);
   const say = await household(failBase);
   const turns: Turn[] = [];
   for (const t of ["I took my pills", "What day is it today?", "Hello again", "One more"]) {
     const r = await say(t);
     assert.ok(r.reply && !r.degraded, `fallback answered "${t}"`);
-    assert.equal(r.model.provider, "Claude API (failover)");
+    assert.equal(r.model.provider, fallbackLabel);
     turns.push(r);
   }
   const f = await modelOf(failBase);
-  assert.equal(f.provider, "Claude API (failover)");
+  assert.equal(f.provider, fallbackLabel);
+  if (f0.configured.fallback.provider === "Amazon Bedrock") assert.ok(f.region, "the Bedrock failover reports its region");
   assert.equal(f.failover_count, f0.failover_count + 4, "one failover counted per turn");
   assert.ok(f.last_receipt?.request_id, "receipt from the fallback call");
-  assert.equal(f.last_receipt.provider, "Claude API (failover)");
+  assert.equal(f.last_receipt.provider, fallbackLabel);
   assert.equal(f.breaker_open, true, "three failures in a row park the primary");
   console.log("ok: forced failover (fallback answered, count incremented, breaker open)");
 }
