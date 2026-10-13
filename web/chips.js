@@ -10,13 +10,13 @@ const $ = (id) => document.getElementById(id);
 
 const STEP_TIMEOUT_MS = 25_000;
 
-// tab: which side panel shows the effect. Labels and hints are the visitor's words, not ours.
+// tab: which side panel shows the effect. Labels and hints are the visitor's words (EN/ES from the device strings).
 const CHIPS = [
-  { id: "extra", label: "Extra dose", tab: "wire", hint: "She already took her pills and asks for another one: STOP on the screen, the family is told, the dose log does not change." },
-  { id: "hedged", label: "Hedged answer", tab: "wire", hint: "“I think I took it, maybe.” Nothing is written down until she is sure." },
-  { id: "missed", label: "Missed dose to family", tab: "phone", hint: "A dose 50 minutes late: Daniel's phone gets the alert (no model)." },
-  { id: "chest", label: "Chest pain", tab: "wire", hint: "An emergency: the number in giant digits and an urgent alert for Daniel." },
-  { id: "spanish", label: "Spanish", tab: "wire", hint: "A question in Spanish: the screen and the answer switch to Spanish." },
+  { id: "extra", tab: "wire" },
+  { id: "hedged", tab: "wire" },
+  { id: "missed", tab: "phone" },
+  { id: "chest", tab: "wire" },
+  { id: "spanish", tab: "wire" },
 ];
 
 let running = false;
@@ -25,9 +25,11 @@ let last = null; // the record of the last chip run (the recorder reads it)
 function paint() {
   const box = $("scenario-chips");
   if (!box) return;
+  const words = ui.t().panel.chips;
   box.innerHTML = CHIPS.map(
-    (c) => `<button type="button" class="scn-chip" data-scenario="${c.id}" title="${c.hint.replace(/"/g, "&quot;")}">${c.label}</button>`,
+    (c) => `<button type="button" class="scn-chip" data-scenario="${c.id}" title="${words[c.id][1].replace(/"/g, "&quot;")}">${words[c.id][0]}</button>`,
   ).join("");
+  box.querySelectorAll("button").forEach((b) => (b.disabled = running));
 }
 
 function lock(on) {
@@ -72,7 +74,7 @@ async function run(id) {
       return rec;
     }
     ui.setLang(data.lang === "es" ? "es-CL" : "en-US");
-    await ui.resetView();
+    await ui.resetView({ quiet: true }); // the re-seed's reminders are not read out over the answer
     if (data.replay) {
       // The set-up needs time earlier today that does not exist yet (just after midnight): replay it honestly.
       rec.mode = "replay";
@@ -149,6 +151,7 @@ $("scenario-chips")?.addEventListener("click", (e) => {
   if (b) run(b.dataset.scenario);
 });
 $("start-over")?.addEventListener("click", () => startOver());
+document.addEventListener("carecue:lang", () => paint());
 
 // For the recorder (video/record-replay.mjs) and tests.
 window.carecueChips = { run, startOver, ids: CHIPS.map((c) => c.id), lastRun: () => last, isRunning: () => running };

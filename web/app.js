@@ -23,6 +23,26 @@ const I18N = {
     placeholder: "…or type here",
     noMic: "Voice input needs Chrome. You can type instead.",
     noMicBanner: "Your browser has no speech recognition: type below or tap a scenario.",
+    panel: {
+      title: "Try it in 60 seconds",
+      play: "\u25b6 Play Rosa's day",
+      playing: "Playing...",
+      startOver: "Start over",
+      hint: "No microphone needed. Each scenario sets up Rosa's home in your own private copy and costs at most one live model turn; every MCP call shows on the wire.",
+      privateDemo: "Your own private demo",
+      sharedDemo: "Shared demo household",
+      demoTime: (where) => `demo time: ${where}`,
+      chipsLabel: "Five scenarios",
+      resting: "The live demo is resting right now. Press a scenario to see a recording of a real run.",
+      chips: {
+        extra: ["Extra dose", "She already took her pills and asks for another one: STOP on the screen, the family is told, the dose log does not change."],
+        hedged: ["Hedged answer", "\u201cI think I took it, maybe.\u201d Nothing is written down until she is sure."],
+        missed: ["Missed dose to family", "A dose 50 minutes late: Daniel's phone gets the alert (no model)."],
+        chest: ["Chest pain", "An emergency: the number in giant digits and an urgent alert for Daniel."],
+        spanish: ["Spanish", "A question in Spanish: the screen and the answer switch to Spanish."],
+      },
+    },
+    week: { title: "Last 7 days", onTime: "on time", late: "confirmed late", missed: "not confirmed", sample: "Sample history (demo)", locale: "en-US" },
     micDisabled: "Speech recognition is not available in this browser. Type in the box instead.",
     reminderLine: (names) => `Time for your ${names}. Have you taken them?`,
     offline: "I can't reach CareCue right now.",
@@ -89,6 +109,26 @@ const I18N = {
     placeholder: "…o escriba aquí",
     noMic: "La voz necesita Chrome. Puede escribir en su lugar.",
     noMicBanner: "Su navegador no tiene reconocimiento de voz: escriba abajo o toque un escenario.",
+    panel: {
+      title: "Pru\u00e9belo en 60 segundos",
+      play: "\u25b6 Ver el d\u00eda de Rosa",
+      playing: "Reproduciendo...",
+      startOver: "Empezar de nuevo",
+      hint: "No necesita micr\u00f3fono. Cada escenario prepara la casa de Rosa en su propia copia privada y cuesta como m\u00e1ximo un turno real del modelo; cada llamada MCP se ve en el cable.",
+      privateDemo: "Su propia demo privada",
+      sharedDemo: "Casa de demostraci\u00f3n compartida",
+      demoTime: (where) => `hora de demostraci\u00f3n: ${where}`,
+      chipsLabel: "Cinco escenarios",
+      resting: "La demo en vivo est\u00e1 descansando. Toque un escenario para ver la grabaci\u00f3n de una ejecuci\u00f3n real.",
+      chips: {
+        extra: ["Dosis de m\u00e1s", "Ya tom\u00f3 sus pastillas y pide otra: ALTO en pantalla, se avisa a la familia y el registro de dosis no cambia."],
+        hedged: ["Respuesta dudosa", "\u201cCreo que la tom\u00e9, tal vez.\u201d No se anota nada hasta que est\u00e9 segura."],
+        missed: ["Dosis olvidada a la familia", "Una dosis con 50 minutos de retraso: el tel\u00e9fono de Daniel recibe la alerta (sin modelo)."],
+        chest: ["Dolor de pecho", "Una emergencia: el n\u00famero en d\u00edgitos gigantes y una alerta urgente para Daniel."],
+        spanish: ["Espa\u00f1ol", "Una pregunta en espa\u00f1ol: la pantalla y la respuesta pasan a espa\u00f1ol."],
+      },
+    },
+    week: { title: "\u00daltimos 7 d\u00edas", onTime: "a tiempo", late: "confirmada con retraso", missed: "sin confirmar", sample: "Historial de ejemplo (demo)", locale: "es-CL" },
     micDisabled: "El reconocimiento de voz no está disponible en este navegador. Escriba en el cuadro.",
     reminderLine: (names) => `Es hora de su ${names}. ¿Ya los tomó?`,
     offline: "No puedo conectarme con CareCue ahora.",
@@ -464,7 +504,7 @@ function paintNoMic() {
 function listen() {
   if (busy) return;
   if (!SR) {
-    $("type-input").focus(); // the mic is disabled, but the space bar and old callers land here
+    $("type-input").focus({ preventScroll: true }); // the mic is disabled, but the space bar and old callers land here
     setUser("");
     setReply(T().noMic);
     return;
@@ -502,6 +542,18 @@ const ss = {
 };
 window.carecueSandbox = undefined;
 let sandboxFailure = null; // why a private demo could not be made (the demo then rests: scenarios and the tour replay)
+let sandboxMode = false; // this page is meant to work on a private household; it never falls back to the shared one
+let needSync = false; // a new household: skip its old events instead of reading them out
+const resting = () => sandboxMode && !window.carecueSandbox;
+const NO_PRIVATE = "no private demo is available right now";
+/** A public visitor whose private demo cannot be made rests: no live turns, no shared household, recordings only. */
+function noPrivateDemo(err) {
+  sandboxFailure = err;
+  setRest(NO_PRIVATE);
+  setReplayBadge(false);
+  paintSandboxNote(null);
+  if (hintShown) setReply(T().panel.resting);
+}
 
 const rawApi = (path, opts = {}) =>
   fetch(path, {
@@ -516,6 +568,7 @@ async function createSandbox() {
   window.carecueSandbox = data.sandbox_id;
   ss.set(SB_KEY, data.sandbox_id);
   sandboxFailure = null;
+  needSync = true;
   return data;
 }
 let creating = null;
@@ -533,19 +586,23 @@ async function boot() {
     } catch {}
   }
   if (!want) return;
+  sandboxMode = true;
   if (stored) window.carecueSandbox = stored; // a stale id is replaced lazily by api() on the first 404 sandbox_expired
-  else await ensureSandbox().catch((err) => { sandboxFailure = err; });
+  else await ensureSandbox().catch(noPrivateDemo);
 }
 const booting = boot();
 
 const api = async (path, opts = {}) => {
   await booting;
+  // No private household and no way to make one: nothing reaches the shared household from a public page.
+  if (resting()) return new Response(JSON.stringify({ error: T().panel.resting }), { status: 503, headers: { "content-type": "application/json" } });
   const used = window.carecueSandbox;
   let res = await rawApi(path, opts);
   if (res.status === 404 && used && (await res.clone().json().catch(() => ({}))).error === "sandbox_expired") {
     if (window.carecueSandbox === used) { window.carecueSandbox = undefined; ss.del(SB_KEY); }
-    if (!window.carecueSandbox) await ensureSandbox().catch((err) => { sandboxFailure = err; });
+    if (!window.carecueSandbox) await ensureSandbox().catch(noPrivateDemo);
     if (window.carecueSandbox) res = await rawApi(path, opts);
+    else return new Response(JSON.stringify({ error: T().panel.resting }), { status: 503, headers: { "content-type": "application/json" } });
   }
   return res;
 };
@@ -591,6 +648,13 @@ async function usability() {
   const out = { server: false, model: false, why: "" };
   try {
     await booting;
+    if (resting()) {
+      // A visitor action is a good moment to try again (the per-hour cap or a full server may have eased).
+      await ensureSandbox().catch((err) => { sandboxFailure = err; });
+      if (resting()) { out.why = NO_PRIVATE; return out; }
+      setRest("");
+      await refresh();
+    }
     const state = await api("/api/state").then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))));
     out.server = true;
     if (sandboxFailure) out.why = "no private demo is available right now";
@@ -735,11 +799,15 @@ function placeOf(tz) {
   if (/^America\/(Santiago|Punta_Arenas)$|^Pacific\/Easter$/.test(tz)) return "Chile";
   return tz === "UTC" ? "UTC" : tz.split("/").pop().replace(/_/g, " ");
 }
+let lastState = null;
 function paintSandboxNote(state) {
   const el = $("sandbox-note");
   if (!el) return;
+  const p = T().panel;
+  if (!state) { el.textContent = ""; return; }
+  lastState = state;
   const where = placeOf(state.timezone);
-  el.textContent = `${state.sandbox ? "Your own private demo" : "Shared demo household"}${where ? ` · demo time: ${where}` : ""}`;
+  el.textContent = `${state.sandbox ? p.privateDemo : p.sharedDemo}${where ? ` \u00b7 ${p.demoTime(where)}` : ""}`;
 }
 
 function paintChrome() {
@@ -760,6 +828,7 @@ function paintChrome() {
 const WEEK_MS = 30_000;
 let weekAt = 0;
 let weekKey = "";
+let lastWeek = null;
 async function loadWeek(state, force = false) {
   const key = `${window.carecueSandbox ?? "shared"}|${state.device?.language}`;
   if (!force && key === weekKey && Date.now() - weekAt < WEEK_MS) return;
@@ -771,11 +840,26 @@ async function loadWeek(state, force = false) {
   } catch {}
 }
 
+/** Server callouts follow the household language; the device language wins when they differ. */
+function calloutText(c) {
+  const es = lk() === "es";
+  const per = { Morning: "de la ma\u00f1ana", Afternoon: "de la tarde", Evening: "de la noche" };
+  const perBack = Object.fromEntries(Object.entries(per).map(([a, b]) => [b, a]));
+  let m;
+  if (es && (m = c.match(/^(Morning|Afternoon|Evening) (.+): confirmed late (\d+) of the last (\d+) days$/))) return `${m[2]} ${per[m[1]]}: confirmada con retraso ${m[3]} de los \u00faltimos ${m[4]} d\u00edas`;
+  if (es && (m = c.match(/^(.+): (\d+) doses? not confirmed in the last 7 days$/))) return `${m[1]}: ${m[2]} ${m[2] === "1" ? "toma sin confirmar" : "tomas sin confirmar"} en los \u00faltimos 7 d\u00edas`;
+  if (!es && (m = c.match(/^(.+) (de la ma\u00f1ana|de la tarde|de la noche): confirmada con retraso (\d+) de los \u00faltimos (\d+) d\u00edas$/))) return `${perBack[m[2]]} ${m[1]}: confirmed late ${m[3]} of the last ${m[4]} days`;
+  if (!es && (m = c.match(/^(.+): (\d+) tomas? sin confirmar en los \u00faltimos 7 d\u00edas$/))) return `${m[1]}: ${m[2]} ${m[2] === "1" ? "dose" : "doses"} not confirmed in the last 7 days`;
+  return c;
+}
+
 function renderWeek(w) {
   const box = $("week");
+  lastWeek = w;
   if (!w?.sample || !Array.isArray(w.doses)) { box.hidden = true; return; }
   box.hidden = false;
-  $("week-sample").textContent = w.label;
+  const W = T().week;
+  $("week-sample").textContent = W.sample;
   // The seven completed days, oldest first, from the window the server reports.
   const dates = [];
   for (let n = 6; n >= 0; n--) {
@@ -786,12 +870,14 @@ function renderWeek(w) {
   const grace = w.grace_minutes ?? 15;
   const cls = (x) => (x.status === "missed" ? "missed" : x.status === "taken" ? ((x.minutes_late ?? 0) > grace ? "late" : "taken") : "other");
   const mark = { taken: "\u2713", late: "!", missed: "\u00d7", other: "\u00b7" };
-  const word = (x, c) => (c === "taken" ? "on time" : c === "late" ? `confirmed ${x.minutes_late} min late` : c === "missed" ? "not confirmed" : x.status);
+  const word = (x, c) =>
+    c === "taken" ? W.onTime : c === "late" ? (lk() === "es" ? `confirmada con ${x.minutes_late} min de retraso` : `confirmed ${x.minutes_late} min late`) : c === "missed" ? W.missed : x.status;
   let summary = 0;
   $("week-strip").innerHTML = dates
     .map((date) => {
       const list = w.doses.filter((x) => x.date === date);
-      const dow = new Date(date + "T12:00:00").toLocaleDateString("en-US", { weekday: "short" });
+      const dow0 = new Date(date + "T12:00:00").toLocaleDateString(W.locale, { weekday: "short" }).replace(/\.$/, "");
+      const dow = dow0.charAt(0).toUpperCase() + dow0.slice(1);
       const cells = list
         .map((x) => {
           const c = cls(x);
@@ -803,8 +889,8 @@ function renderWeek(w) {
       return `<div class="wday"><div class="wcells">${cells}</div><div class="wlbl">${esc(dow.slice(0, 2))}</div></div>`;
     })
     .join("");
-  $("week-strip").setAttribute("aria-label", `${w.label}: ${summary} doses over the last 7 days`);
-  $("week-callouts").innerHTML = (w.callouts ?? []).map((c) => `<li>${esc(c)}</li>`).join("");
+  $("week-strip").setAttribute("aria-label", `${W.sample}: ${summary} ${lk() === "es" ? "dosis en los \u00faltimos 7 d\u00edas" : "doses over the last 7 days"}`);
+  $("week-callouts").innerHTML = (w.callouts ?? []).map((c) => `<li>${esc(calloutText(c))}</li>`).join("");
 }
 
 function renderPhone(state) {
@@ -883,10 +969,18 @@ function toast(text) {
 
 async function pollEvents() {
   try {
-    const events = await api(`/api/events?since=${lastEventId}`).then((r) => r.json());
+    if (resting()) return;
+    const quiet = needSync;
+    needSync = false;
+    const res = await api(`/api/events?since=${quiet ? 0 : lastEventId}`);
+    if (!res.ok) return;
+    const events = await res.json();
+    if (quiet) { lastEventId = events.reduce((m, e) => Math.max(m, e.id), 0); return; }
+    // A recording on the screen (the replay badge) is not talked over by a fresh reminder.
+    const replaying = !$("replay-badge").hidden;
     for (const e of events) {
       lastEventId = Math.max(lastEventId, e.id);
-      if (e.kind === "reminder" && !busy) {
+      if (e.kind === "reminder" && !busy && !replaying) {
         hintShown = false;
         setUser("");
         setReply(e.text);
@@ -924,6 +1018,7 @@ document.querySelectorAll('[role="tab"]').forEach((t) => {
 // ---------- language, text size, theme ----------
 /** What the device says before anything was said: the due reminder of this morning, else the usual hint. */
 function idleLine() {
+  if (resting()) return T().panel.resting;
   const sc = serverScene;
   if (sc && (sc.kind === "reminder" || sc.kind === "late") && sc.medications?.length) return T().reminderLine(listOf(sc.medications.map((m) => m.name)));
   return T().hint;
@@ -942,6 +1037,25 @@ function paintStatic() {
   if ($("try-label")) $("try-label").textContent = t.trySaying;
   if (hintShown) setReply(idleLine());
   paintNoMic();
+  paintPanel();
+}
+
+/** The "Try it in 60 seconds" panel and the week strip speak the device language too. */
+function paintPanel() {
+  const p = T().panel;
+  const set = (id, v) => { const e = $(id); if (e) e.textContent = v; };
+  set("try60-title", p.title);
+  set("start-over", p.startOver);
+  set("tour-hint", p.hint);
+  $("try60-title")?.setAttribute("title", p.hint);
+  $("scenario-chips")?.setAttribute("aria-label", p.chipsLabel);
+  const w = T().week;
+  set("week-title", w.title);
+  document.querySelectorAll("[data-wk]").forEach((e) => (e.textContent = w[e.dataset.wk]));
+  if (lastWeek) renderWeek(lastWeek);
+  if (lastState) paintSandboxNote(lastState);
+  else if (resting()) paintSandboxNote(null);
+  announce("carecue:lang", { lang: lk() });
 }
 
 function setLang(l, rerender = true) {
@@ -1101,6 +1215,8 @@ window.carecueUI = {
   scenario, usability, ensureSandbox, setRest, setReplayBadge, REPLAY_LABEL, loadWeek: (force) => api("/api/state").then((r) => r.json()).then((st) => loadWeek(st, force ?? true)).catch(() => {}),
   ready: booting,
   sandboxFailure: () => sandboxFailure,
+  resting,
+  t: () => T(),
   getLang: () => lang,
   isBusy: () => busy,
 };
@@ -1114,7 +1230,7 @@ if (design) {
 }
 paintStatic();
 applyScene();
-if (!SR && !design) $("type-input").focus(); // no microphone: the big text box is the way in
+if (!SR && !design) $("type-input").focus({ preventScroll: true }); // no microphone: the big text box is the way in
 if (Q.get("wire") === "1") showTab("wire");
 refresh();
 // A hidden tab stops polling, so a forgotten tab keeps nothing warm on the server.

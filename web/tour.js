@@ -60,8 +60,10 @@ function setButton(isRunning) {
   const b = $("tour-play");
   if (!b) return;
   b.disabled = isRunning;
-  b.innerHTML = isRunning ? "Playing..." : "&#9654; Play Rosa's day";
+  const p = ui.t().panel;
+  b.textContent = isRunning ? p.playing : p.play;
 }
+document.addEventListener("carecue:lang", () => setButton(running));
 
 // ---------- replay ----------
 async function loadReplay() {

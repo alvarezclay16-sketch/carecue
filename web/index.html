@@ -25,11 +25,11 @@
 
   <!-- "Try it in 60 seconds": your own private morning, 5 scenarios, the guided tour (hidden with ?clean=1) -->
   <section id="tourbar" class="tourbar" aria-labelledby="try60-title">
-    <div class="try60-head">
-      <h2 id="try60-title">Try it in 60 seconds</h2>
-      <span id="sandbox-note" class="try60-note" role="status"></span>
-    </div>
     <div class="try60-row">
+      <div class="try60-id">
+        <h2 id="try60-title">Try it in 60 seconds</h2>
+        <span id="sandbox-note" class="try60-note" role="status"></span>
+      </div>
       <button id="tour-play" class="tour-play" type="button">&#9654; Play Rosa's day</button>
       <div id="scenario-chips" class="scn-chips" role="group" aria-label="Five scenarios"></div>
       <button id="start-over" class="start-over" type="button">Start over</button>
@@ -115,9 +115,9 @@
               <p id="week-sample" class="sample-tag"></p>
               <div id="week-strip" class="week-strip" role="img" aria-label="Last 7 days of doses"></div>
               <ul class="week-legend" aria-hidden="true">
-                <li><i class="cell c-taken">&#10003;</i>on time</li>
-                <li><i class="cell c-late">!</i>confirmed late</li>
-                <li><i class="cell c-missed">&times;</i>not confirmed</li>
+                <li><i class="cell c-taken">&#10003;</i><span data-wk="onTime">on time</span></li>
+                <li><i class="cell c-late">!</i><span data-wk="late">confirmed late</span></li>
+                <li><i class="cell c-missed">&times;</i><span data-wk="missed">not confirmed</span></li>
               </ul>
               <ul id="week-callouts" class="callouts"></ul>
             </section>
