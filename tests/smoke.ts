@@ -1,5 +1,7 @@
 // End-to-end check against a running server: node tests/smoke.ts [baseUrl]
 // Drives the MCP server like Alexa+ would, and moves the demo clock through a day.
+// The server must be local and started with CARECUE_CLOCK_CONTROL=1 (the clock and /api/reset are 403 otherwise),
+// a temp CARECUE_DB, and CARECUE_EVAL=1 if the model should not be limited. No model call is made here.
 
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
@@ -136,6 +138,105 @@ assert.equal((await rpc(14, "initialize", init, { Origin: new URL(base).origin }
 const initBody = await (await rpc(15, "initialize", init)).text();
 assert.ok(initBody.includes("2025-11-25"), "initialize answers protocol 2025-11-25");
 console.log("origin check: evil.example -> 403, no Origin -> 200");
+
+// Sandbox households, scenes, touch, probes and the MCP handshake: no model involved.
+{
+  const get = (p: string, id?: string) => fetch(base + p, { headers: id ? { "x-carecue-sandbox": id } : {} });
+  const sbPost = (p: string, id: string | undefined, body: unknown) =>
+    fetch(base + p, { method: "POST", headers: { "content-type": "application/json", ...(id ? { "x-carecue-sandbox": id } : {}) }, body: JSON.stringify(body) });
+  const state = async (id?: string) => (await get("/api/state", id)).json();
+
+  const demo0 = await state();
+  assert.ok(demo0.scene && demo0.device, "the shared demo state carries scene and device");
+  assert.equal(demo0.device.clock_control, true, "this server controls its clock");
+  assert.equal(demo0.device.emergency_number, "131");
+
+  const info = await (await get("/api/mcp-info")).json();
+  assert.equal(info.protocolVersion, "2025-11-25", "read from a real initialize response");
+  assert.equal(info.tools.length, 12);
+  assert.deepEqual([info.roles.patient.length, info.roles.caregiver.length], [10, 12]);
+  assert.ok(info.tools.every((t: { annotations: unknown }) => t.annotations), "annotations on every tool");
+  assert.ok(info.model?.id, "the model is named");
+
+  const a = (await (await sbPost("/api/sandbox", undefined, { scenario: "morning" })).json()).sandbox_id as string;
+  const b = (await (await sbPost("/api/sandbox", undefined, {})).json()).sandbox_id as string;
+  assert.ok(a && b && a !== b);
+  let st = await state(a);
+  assert.equal(st.scene.kind, "reminder", "a fresh sandbox starts with a due reminder");
+  assert.equal(st.alerts.length, 0);
+  assert.equal(st.today.due_now.length, 2);
+  assert.equal(st.sandbox, true);
+  assert.equal((await get("/api/state", "sb_doesnotexist1")).status, 404);
+  assert.equal((await (await get("/api/state", "sb_doesnotexist1")).json()).error, "sandbox_expired");
+
+  // probes: labelled direct calls, no model
+  const probe = async (id: string, sb = a) => sbPost("/api/probe", sb, { id });
+  let r = await probe("hedged_log");
+  let pj = await r.json();
+  assert.equal(r.status, 200);
+  assert.equal(pj.label, "direct tool call - no model involved");
+  assert.equal(pj.trace.guard, "unconfirmed");
+  assert.equal(pj.trace.effect, "refused");
+  assert.equal(pj.trace.source, "probe");
+  assert.equal((await state(a)).today.due_now.length, 2, "the refused hedge wrote nothing");
+  assert.equal((await probe("double_log")).status, 409, "double_log before anything is taken");
+  pj = await (await probe("remove_med")).json();
+  assert.equal(pj.http.status, 403);
+  assert.ok(pj.http.www_authenticate.includes("insufficient_scope"));
+  assert.equal((await probe("nope")).status, 400);
+  assert.equal((await state(a)).today.all_today.length, st.today.all_today.length, "remove_med removed nothing");
+
+  // touch: the button goes through MCP log_dose with source 'touch'
+  assert.equal((await sbPost("/api/device/touch", a, { action: "not_yet" })).status, 200);
+  assert.equal((await state(a)).today.due_now.length, 2, "Not yet writes nothing");
+  assert.equal((await sbPost("/api/device/touch", a, { action: "dance" })).status, 400);
+  const took = await (await sbPost("/api/device/touch", a, { action: "took" })).json();
+  assert.equal(took.trace.source, "touch");
+  assert.equal(took.trace.name, "log_dose");
+  assert.equal(took.scene.kind, "confirmed");
+  assert.equal(took.ttl_s, 8);
+  assert.equal(took.result.ok, true);
+  const again = await (await sbPost("/api/device/touch", a, { action: "took" })).json();
+  assert.deepEqual(again.scene, { kind: "not_written", reason: "nothing_due" });
+  pj = await (await probe("double_log")).json();
+  assert.equal(pj.trace.guard, "possible_double_dose");
+  assert.equal((await probe("hedged_log")).status, 409, "hedged_log needs a dose due now");
+  assert.equal((await state(b)).today.due_now.length, 2, "the other sandbox is untouched");
+
+  // scenarios: deterministic states, isolated per sandbox
+  const sc = async (id: string, sb: string) => (await sbPost(`/api/scenario/${id}`, sb, {})).json();
+  assert.equal((await sc("hedged", a)).utterance, "I think I took it, maybe.");
+  assert.equal((await state(a)).today.due_now.length, 2, "re-seeded: due again");
+  assert.equal((await sc("extra", a)).utterance, "I'll take another one, just in case.");
+  st = await state(a);
+  assert.equal(st.today.done_today.length, 2);
+  assert.equal(st.today.due_now.length, 0);
+  const missed = await sc("missed", b);
+  if (!missed.replay) {
+    st = await state(b);
+    assert.ok(st.alerts.some((x: { kind: string }) => x.kind === "missed_dose"), "missed: the family alert exists");
+    assert.equal((await state(a)).alerts.length, 0, "the alert is private to its sandbox");
+    assert.equal(st.scene.kind, "late");
+  }
+  const es = await sc("spanish", a);
+  assert.equal(es.lang, "es");
+  assert.equal((await state(a)).device.language, "es");
+  assert.equal((await sc("chest", a)).utterance, "I don't feel good. I have a pain in my chest.");
+  assert.equal((await state(a)).device.language, "en");
+  assert.equal((await sbPost("/api/scenario/nope", a, {})).status, 404);
+
+  // sample history, labelled; a real household never has it
+  const week = await (await get("/api/week", a)).json();
+  assert.equal(week.label, "Sample history (demo)");
+  assert.ok(week.callouts.includes("Evening Metformin: confirmed late 4 of the last 7 days"));
+  assert.ok(week.adherence.adherence_percent > 80);
+  assert.ok(week.callouts.every((c: string) => !/should|recommend|poor|advice|consider/i.test(c)), "callouts are counts only");
+  assert.equal(week.doses.length, 28);
+  const real = await (await fetch(base + "/api/app/state", { headers: { authorization: `Bearer ${created.token}` } })).json();
+  assert.equal(real.adherence.doses_due, 0, "a real household has no history");
+  assert.equal(real.checkins.length, 0);
+  console.log("sandbox: private morning, scenes, touch via MCP, labelled probes, isolation, sample week");
+}
 
 // 7:50 AM — nothing due yet.
 await post("/api/clock", { time: "07:50" });

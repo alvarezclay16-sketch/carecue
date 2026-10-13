@@ -95,6 +95,15 @@ CREATE TABLE IF NOT EXISTS alexa_reminders (
   schedule_hash TEXT NOT NULL
 );
 
+-- A private demo household per visitor (additive). The id travels in the x-carecue-sandbox header.
+CREATE TABLE IF NOT EXISTS sandboxes (
+  id TEXT PRIMARY KEY,
+  patient_id INTEGER NOT NULL,
+  ip TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  last_seen TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS checkins (
   id INTEGER PRIMARY KEY,
   patient_id INTEGER NOT NULL REFERENCES patients(id) ON DELETE CASCADE,
@@ -158,6 +167,9 @@ export type Caregiver = {
   contact: string;
 };
 
+/** Called with the demo patient id each time seedDemo creates the household (src/sample.ts adds the sample history). */
+export const demoSeedHooks: Array<(patientId: number) => void> = [];
+
 /** Demo household: Rosa (78) and her son Daniel, who gets the alerts. */
 export function seedDemo(): void {
   if (db.prepare("SELECT 1 FROM patients WHERE is_demo = 1").get()) return;
@@ -181,6 +193,7 @@ export function seedDemo(): void {
   addMed.run(patientId, "Metformin", "850 mg, 1 tablet", "with breakfast and dinner", JSON.stringify(["08:00", "20:00"]), 1, 22, 5);
   addMed.run(patientId, "Losartan", "50 mg, 1 tablet", "in the morning", JSON.stringify(["08:00"]), 1, 4, 5);
   addMed.run(patientId, "Atorvastatin", "20 mg, 1 tablet", "at night", JSON.stringify(["21:00"]), 1, 30, 5);
+  for (const hook of demoSeedHooks) hook(patientId);
 }
 
 /** Resets only the demo household; real households are never touched. */

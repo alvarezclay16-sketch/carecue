@@ -230,7 +230,7 @@ const VOICE_BLOCKED = new Set(["add_medication", "stop_medication"]);
 const FIRE_AND_SPEAK = new Set(["notify_caregiver", "record_checkin"]);
 const bridges = new Map<number, Promise<Bridge>>();
 
-const mcpUrl = () => new URL(process.env.CARECUE_MCP_URL ?? `http://127.0.0.1:${process.env.PORT ?? 8787}/mcp`);
+export const mcpUrl = () => new URL(process.env.CARECUE_MCP_URL ?? `http://127.0.0.1:${process.env.PORT ?? 8787}/mcp`);
 
 /** A raw POST initialize (protocol 2025-11-25), to read exactly what the server answers. Null if it fails. */
 async function rawInitialize(patientId: number): Promise<{ protocolVersion?: string; serverInfo?: unknown; capabilities?: unknown; instructions?: string } | null> {
@@ -345,6 +345,20 @@ function conversation(id: string): Conversation {
 
 export function resetConversation(id: string) {
   conversations.delete(id);
+}
+
+/** Drops every conversation of one household (a sandbox starting over). */
+export function forgetConversations(patientId: number) {
+  for (const key of [...conversations.keys()]) if (key.startsWith(`${patientId}:`)) conversations.delete(key);
+}
+
+/** Drops a deleted household's conversations and closes its MCP bridge (sandbox purge). */
+export function forgetHousehold(patientId: number) {
+  forgetConversations(patientId);
+  for (const key of [...locks.keys()]) if (key.startsWith(`${patientId}:`)) locks.delete(key);
+  const b = bridges.get(patientId);
+  bridges.delete(patientId);
+  b?.then((x) => x.client.close()).catch(() => {});
 }
 
 /** Fresh facts for every turn, so most answers need no tool call (and no guessing). */

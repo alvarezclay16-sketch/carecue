@@ -111,3 +111,21 @@ export function alexaLinked(patientId: number): boolean {
 export function patientLanguage(patient: Patient): "en" | "es" {
   return patient.preferred_language === "es" ? "es" : "en";
 }
+
+/**
+ * Removes a household and everything that belongs to it, in one transaction (sandbox purge).
+ * In-memory leftovers (conversation, events, scene latch) are cleared by the caller.
+ */
+export function deleteHousehold(patientId: number): void {
+  db.exec("BEGIN");
+  try {
+    for (const table of ["alexa_reminders", "pair_codes", "alerts", "doses", "checkins", "medications", "caregivers", "links", "sandboxes"]) {
+      db.prepare(`DELETE FROM ${table} WHERE patient_id = ?`).run(patientId);
+    }
+    db.prepare("DELETE FROM patients WHERE id = ?").run(patientId);
+    db.exec("COMMIT");
+  } catch (err) {
+    db.exec("ROLLBACK");
+    throw err;
+  }
+}

@@ -15,6 +15,11 @@ export function getPatient(patientId?: number): Patient {
   return row as Patient;
 }
 
+/** A visitor's private demo household. Its alerts never leave the server. */
+export function isSandbox(patientId: number): boolean {
+  return !!db.prepare("SELECT 1 FROM sandboxes WHERE patient_id = ?").get(patientId);
+}
+
 export function listPatients(): Patient[] {
   return db.prepare("SELECT * FROM patients ORDER BY id").all() as Patient[];
 }
@@ -402,6 +407,11 @@ function pushEvent(e: Omit<CareEvent, "id" | "at">) {
   if (events.length > 200) events.shift();
 }
 
+/** Forget the spoken reminders and alert lines kept in memory for one household (sandbox restart or purge). */
+export function clearEvents(patientId: number): void {
+  for (let i = events.length - 1; i >= 0; i--) if (events[i].patient_id === patientId) events.splice(i, 1);
+}
+
 export function eventsSince(id: number, patientId?: number): CareEvent[] {
   return events.filter((e) => e.id > id && (patientId === undefined || e.patient_id === patientId));
 }
@@ -427,7 +437,7 @@ export async function alertCaregivers(
     if (prev && rank[severity] <= rank[prev.severity]) {
       db.prepare("UPDATE alerts SET message = message || ' | [' || ? || '] ' || ? WHERE id = ?").run(getPatient(patientId).preferred_language === "es" ? spokenTimeEs(localTime(now())) : spokenTime(localTime(now())), message, prev.id);
       pushEvent({ kind: "alert", text: `To ${to}: ${message}`, patient_id: patientId });
-      void deliver({ patient: getPatient(patientId).name, kind, severity, message, to });
+      if (!isSandbox(patientId)) void deliver({ patient: getPatient(patientId).name, kind, severity, message, to });
       return { ok: true, merged: true, alert_id: prev.id, delivered_to: to };
     }
   }
@@ -437,7 +447,7 @@ export async function alertCaregivers(
     )
     .run(patientId, doseId, kind, severity, message, now().toISOString(), to);
   pushEvent({ kind: "alert", text: `To ${to}: ${message}`, patient_id: patientId });
-  void deliver({ patient: getPatient(patientId).name, kind, severity, message, to });
+  if (!isSandbox(patientId)) void deliver({ patient: getPatient(patientId).name, kind, severity, message, to });
   return { ok: true, alert_id: Number(r.lastInsertRowid), delivered_to: to };
 }
 
@@ -519,10 +529,10 @@ export function caregiverBriefing(patientId: number) {
  * -> missed (after the grace period) -> caregiver alert (after escalate_after_minutes).
  * Also raises one refill alert per medication per day.
  */
-export async function tick(): Promise<void> {
+export async function tick(only?: number): Promise<void> {
   const t = now();
   const date = localDate(t);
-  for (const p of listPatients()) {
+  for (const p of only === undefined ? listPatients() : [getPatient(only)]) {
     const doses = dosesOn(p.id, date);
     const nowMin = toMinutes(localTime(t));
 

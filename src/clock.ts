@@ -6,6 +6,12 @@ process.env.TZ ??= process.env.CARECUE_TZ ?? "America/Santiago";
 
 let offsetMs = 0;
 
+/**
+ * Only a local server (the recorder, the tests) may move the clock: CARECUE_CLOCK_CONTROL=1.
+ * A public instance never shifts or freezes the clock, because every visitor shares it.
+ */
+export const clockControlEnabled = () => process.env.CARECUE_CLOCK_CONTROL === "1";
+
 export function now(): Date {
   return new Date(Date.now() + offsetMs);
 }

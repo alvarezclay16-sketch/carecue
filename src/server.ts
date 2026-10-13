@@ -21,14 +21,20 @@ import {
   type Link,
 } from "./households.ts";
 import { assertBootSafe, CANNED, describe, evalHookAllowed, gateCreate, gateMcp, gateModelTurn } from "./limits.ts";
-import { atLocal, isShifted, localDate, localTime, now, resetClock, setNow, spokenTime } from "./clock.ts";
+import { atLocal, clockControlEnabled, isShifted, localDate, localTime, now, resetClock, setNow, spokenTime } from "./clock.ts";
+import { baselineScene, clearAllLatches, currentScene, deriveScene } from "./scene.ts";
+import { applyScenario, isScenarioId, scenarioList, type Lang } from "./scenarios.ts";
+import { createSandbox, pidFor, restartHousehold, sandboxIdOf, startSandboxJobs, touchPlayground } from "./sandbox.ts";
+import { ensureDemoHistory, weekView, SAMPLE_LABEL } from "./sample.ts";
 
 const PORT = Number(process.env.PORT ?? 8787);
 const HOST = process.env.HOST ?? "127.0.0.1";
 const DEMO = process.env.CARECUE_DEMO !== "0";
 
-assertBootSafe(); // CARECUE_EVAL together with CARECUE_PUBLIC refuses to start
+assertBootSafe(); // CARECUE_EVAL or CARECUE_CLOCK_CONTROL together with CARECUE_PUBLIC refuses to start
 seedDemo();
+ensureDemoHistory(demoPatientId()); // sample history for the shared demo household (labelled "Sample history (demo)")
+startSandboxJobs(); // purge idle sandboxes, re-seed a dirty idle playground
 
 const app = express();
 app.disable("x-powered-by");
@@ -43,6 +49,7 @@ app.get("/health", (_req, res) => res.json({ ok: true }));
 
 // ---------- MCP ----------
 app.post("/mcp", (req, res) => {
+  if (!req.headers.authorization) touchPlayground(); // an anonymous client is using the shared playground
   const wait = gateMcp(req);
   if (wait) {
     res.set("Retry-After", String(wait));
@@ -85,18 +92,20 @@ async function agentReply(req: Request, res: Response, patientId: number, conver
     const reply = verdict.urgent
       ? (await import("./agent.ts")).fallbackReply("unavailable", es, care.emergencyNumber(patientId))
       : CANNED[es ? "es" : "en"];
-    return void res.json({ reply, toolCalls: [], limited: true, ...(verdict.urgent ? { degraded: true } : {}) });
+    return void res.json({ reply, toolCalls: [], limited: true, scene: null, ttl_s: null, ...(verdict.urgent ? { degraded: true } : {}) });
   }
-  if (process.env.CARECUE_FAKE_AGENT === "1") return void res.json({ reply: "[fake agent] ok", toolCalls: [] }); // tests only
+  if (process.env.CARECUE_FAKE_AGENT === "1") return void res.json({ reply: "[fake agent] ok", toolCalls: [], ...deriveScene([], text, patientId) }); // tests only
   if (!hasModelCredentials()) return void res.status(503).json({ error: "The voice assistant isn't configured yet." });
   try {
     const { chat } = await import("./agent.ts");
-    res.json(await chat(conversationId, text, patientId, bare ? { mode: "bare" } : undefined));
+    const turn = await chat(conversationId, text, patientId, bare ? { mode: "bare" } : undefined);
+    // The scene comes from the tool calls and the log, never from the reply text.
+    res.json({ ...turn, ...deriveScene(turn.toolCalls, text, patientId) });
   } catch (err) {
     // Never leave a voice device silent: answer with a safe spoken sentence instead of an error body.
     console.error("[agent]", err);
     const { fallbackReply } = await import("./agent.ts");
-    res.json({ reply: fallbackReply("unavailable", es, care.emergencyNumber(patientId)), toolCalls: [], degraded: true });
+    res.json({ reply: fallbackReply("unavailable", es, care.emergencyNumber(patientId)), toolCalls: [], degraded: true, scene: null, ttl_s: null });
   }
 }
 
@@ -329,38 +338,174 @@ appApi.post(
 
 app.use("/api/app", appApi);
 
-// ---------- web simulator (demo household only) ----------
-app.post("/api/chat", (req, res) =>
-  agentReply(req, res, demoPatientId(), String(req.body?.conversationId ?? "device"), String(req.body?.text ?? "").trim()),
+// ---------- web simulator ----------
+// Every route below acts on the caller's private sandbox (header x-carecue-sandbox), or on the shared demo
+// household when there is no header (the local recorder, local dev). An unknown or expired id answers 404 sandbox_expired.
+
+type Scoped = (req: Request, res: Response, patientId: number) => unknown;
+const demo = (fn: Scoped) => (req: Request, res: Response) => {
+  const patientId = pidFor(req);
+  if (patientId === undefined) return void res.status(404).json({ error: "sandbox_expired" });
+  Promise.resolve(fn(req, res, patientId)).catch((err) => {
+    console.error("[demo]", err);
+    if (!res.headersSent) res.status(500).json({ error: (err as Error).message });
+  });
+};
+
+/** A private demo household for this visitor, set up for a scenario (default: a fresh morning with a reminder due). */
+app.post("/api/sandbox", async (req, res) => {
+  const wait = gateCreate(req);
+  if (wait) {
+    res.set("Retry-After", String(wait));
+    return void res.status(429).json({ error: "Too many new demos from this address. Please try again later.", retry_after_s: wait });
+  }
+  try {
+    const r = await createSandbox(req, { scenario: req.body?.scenario, lang: req.body?.lang });
+    if (!r.ok) {
+      if (r.retry_after_s) res.set("Retry-After", String(r.retry_after_s));
+      return void res.status(r.status).json({ error: r.error, ...(r.retry_after_s ? { retry_after_s: r.retry_after_s } : {}) });
+    }
+    res.json({ sandbox_id: r.sandbox_id, scenario: r.scenario, lang: r.lang, utterance: r.utterance, replay: r.replay, timezone: process.env.TZ });
+  } catch (err) {
+    console.error("[sandbox]", err);
+    res.status(500).json({ error: "Could not start a private demo." });
+  }
+});
+
+app.get("/api/scenarios", (_req, res) => res.json(scenarioList()));
+
+/**
+ * Re-seeds the caller's household for a scenario (alerts, events, conversation and scene latch cleared) and returns
+ * what to say, if anything. The client sends it through the normal chat route: at most one model turn per chip.
+ * Without a sandbox header it only works on a local server that controls its own clock (the recorder).
+ */
+app.post(
+  "/api/scenario/:id",
+  demo(async (req, res, patientId) => {
+    const id = String(req.params.id);
+    if (!isScenarioId(id)) return void res.status(404).json({ error: "unknown_scenario", scenarios: scenarioList().map((s) => s.id) });
+    if (!sandboxIdOf(req) && !clockControlEnabled()) return void res.status(403).json({ error: "sandbox_required" });
+    const lang: Lang | undefined = req.body?.lang === "es" ? "es" : req.body?.lang === "en" ? "en" : undefined;
+    await restartHousehold(patientId);
+    const r = await applyScenario(patientId, id, lang);
+    res.json({ scenario: r.scenario, lang: r.lang, utterance: r.utterance, replay: r.replay });
+  }),
 );
 
-app.post("/api/chat/reset", async (req, res) => {
-  const { resetConversation } = await import("./agent.ts");
-  resetConversation(`${demoPatientId()}:${String(req.body?.conversationId ?? "device")}`);
-  res.json({ ok: true });
+app.post(
+  "/api/chat",
+  demo((req, res, patientId) =>
+    agentReply(req, res, patientId, sandboxIdOf(req) ?? String(req.body?.conversationId ?? "device"), String(req.body?.text ?? "").trim()),
+  ),
+);
+
+app.post(
+  "/api/chat/reset",
+  demo(async (req, res, patientId) => {
+    const { resetConversation } = await import("./agent.ts");
+    resetConversation(`${patientId}:${sandboxIdOf(req) ?? String(req.body?.conversationId ?? "device")}`);
+    res.json({ ok: true });
+  }),
+);
+
+app.get(
+  "/api/state",
+  demo((req, res, id) => {
+    const p = care.getPatient(id);
+    const t = now();
+    const caregivers = care.caregiversOf(id);
+    res.json({
+      patient: p.name,
+      caregivers,
+      clock: { time: localTime(t), spoken: spokenTime(localTime(t)), date: localDate(t), shifted: isShifted() },
+      model_ready: hasModelCredentials(),
+      today: care.todaySchedule(id),
+      adherence: care.adherence(id, 7),
+      refills: care.refillForecast(id),
+      alerts: care.recentAlerts(id, 15),
+      checkins: care.recentCheckins(id, 5),
+      scene: currentScene(id),
+      device: {
+        emergency_number: care.emergencyNumber(id),
+        crisis_line: care.crisisLine(id),
+        caregiver_first: caregivers[0]?.name.trim().split(/\s+/)[0] ?? null,
+        language: p.preferred_language === "es" ? "es" : "en",
+        clock_control: clockControlEnabled(),
+      },
+      sandbox: !!sandboxIdOf(req),
+      sample_label: SAMPLE_LABEL[p.preferred_language === "es" ? "es" : "en"],
+      timezone: process.env.TZ ?? null,
+    });
+  }),
+);
+
+app.get(
+  "/api/events",
+  demo((req, res, id) => res.json(care.eventsSince(Number(req.query.since ?? 0), id))),
+);
+
+// The last 7 days of dose history (sample data, labelled) with plain counts. Demo households only.
+app.get(
+  "/api/week",
+  demo((_req, res, id) => res.json(weekView(id))),
+);
+
+// The "I took it" / "Not yet" buttons of the simulated device. Touch goes through MCP log_dose like a model call would,
+// so the same server guard runs and a TOUCH chip appears in the wire tab. No model is involved.
+app.post(
+  "/api/device/touch",
+  demo(async (req, res, patientId) => {
+    const wait = gateMcp(req);
+    if (wait) {
+      res.set("Retry-After", String(wait));
+      return void res.status(429).json({ error: "Too many requests. Please slow down." });
+    }
+    const action = req.body?.action;
+    if (action === "not_yet") return void res.json({ ok: true }); // writes nothing; the client shows its fixed line
+    if (action !== "took") return void res.status(400).json({ error: "Send {action: 'took'} or {action: 'not_yet'}." });
+    const { callToolDirect } = await import("./agent.ts");
+    let trace;
+    try {
+      trace = await callToolDirect(patientId, "log_dose", { medication: "all_due", status: "taken", person_was_certain: true, note: "tapped on the screen" }, "touch");
+    } catch (err) {
+      console.error("[touch]", err);
+      return void res.status(503).json({ error: "The device could not reach the care service. Nothing was written down." });
+    }
+    res.json({ result: trace.result, trace, ...deriveScene([trace], "", patientId) });
+  }),
+);
+
+// What the MCP server announced at its handshake, for the wire tab header. Read from a real initialize response.
+app.get("/api/mcp-info", async (_req, res) => {
+  res.set("Cache-Control", "no-store");
+  try {
+    res.json(await (await import("./probes.ts")).mcpInfo(demoPatientId()));
+  } catch (err) {
+    console.error("[mcp-info]", err);
+    res.status(503).json({ error: "The MCP handshake is not available yet." });
+  }
 });
 
-app.get("/api/state", (_req, res) => {
-  const id = demoPatientId();
-  const p = care.getPatient(id);
-  const t = now();
-  res.json({
-    patient: p.name,
-    caregivers: care.caregiversOf(id),
-    clock: { time: localTime(t), spoken: spokenTime(localTime(t)), date: localDate(t), shifted: isShifted() },
-    model_ready: hasModelCredentials(),
-    today: care.todaySchedule(id),
-    adherence: care.adherence(id, 7),
-    refills: care.refillForecast(id),
-    alerts: care.recentAlerts(id, 15),
-    checkins: care.recentCheckins(id, 5),
-  });
-});
+// Three labelled direct tool calls (never a model): what the server does when a client misbehaves.
+app.post(
+  "/api/probe",
+  demo(async (req, res, patientId) => {
+    const probes = await import("./probes.ts");
+    const id = req.body?.id;
+    if (!probes.isProbeId(id)) return void res.status(400).json({ error: "Unknown probe.", probes: probes.PROBE_IDS });
+    const wait = gateMcp(req);
+    if (wait) {
+      res.set("Retry-After", String(wait));
+      return void res.status(429).json({ error: "Too many requests. Please slow down." });
+    }
+    const r = await probes.runProbe(id, patientId);
+    res.status(r.status).json(r.body);
+  }),
+);
 
-app.get("/api/events", (req, res) => res.json(care.eventsSince(Number(req.query.since ?? 0), demoPatientId())));
-
+// Moving the clock is for a local server only (the recorder, the tests): on a public instance everyone shares one clock.
 app.post("/api/clock", async (req, res) => {
-  if (!DEMO) return void res.status(403).json({ error: "Demo controls are off." });
+  if (!DEMO || !clockControlEnabled()) return void res.status(403).json({ error: "The clock is fixed on this server." });
   if (req.body?.reset) resetClock();
   else if (typeof req.body?.time === "string" && /^\d{2}:\d{2}$/.test(req.body.time)) {
     setNow(atLocal(localDate(now()), req.body.time));
@@ -369,12 +514,29 @@ app.post("/api/clock", async (req, res) => {
   res.json({ ok: true, time: localTime(now()) });
 });
 
-app.post("/api/alerts/:id/ack", (req, res) => res.json(care.acknowledgeAlert(Number(req.params.id))));
+app.post(
+  "/api/alerts/:id/ack",
+  demo((req, res, patientId) => {
+    const alert = care.recentAlerts(patientId, 200).find((a) => a.id === Number(req.params.id));
+    if (!alert) return void res.status(404).json({ error: "Alert not found." });
+    res.json(care.acknowledgeAlert(alert.id));
+  }),
+);
 
-app.post("/api/reset", async (_req, res) => {
+// Start over. With a sandbox header: a fresh morning for that sandbox. Without one: reset the shared demo household
+// and the clock, which only a local server (clock control) allows.
+app.post("/api/reset", async (req, res) => {
   if (!DEMO) return void res.status(403).json({ error: "Demo controls are off." });
+  if (sandboxIdOf(req) || req.headers["x-carecue-sandbox"] !== undefined) {
+    const id = pidFor(req);
+    if (id === undefined) return void res.status(404).json({ error: "sandbox_expired" });
+    await restartHousehold(id);
+    return void res.json({ ok: true });
+  }
+  if (!clockControlEnabled()) return void res.status(403).json({ error: "Only a local server can reset the shared demo." });
   resetDemo();
   resetClock();
+  clearAllLatches();
   res.json({ ok: true });
 });
 

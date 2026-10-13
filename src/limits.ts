@@ -33,6 +33,10 @@ const DATA_DIR = process.env.CARECUE_DATA_DIR ?? path.join(import.meta.dirname, 
 
 /** Called once at boot: eval mode switches limits off, so it must never share a process with a public instance. */
 export function assertBootSafe(): void {
+  if (isPublic() && process.env.CARECUE_CLOCK_CONTROL === "1") {
+    console.error("[limits] Refusing to start: CARECUE_CLOCK_CONTROL=1 together with CARECUE_PUBLIC=1 would let any visitor move the shared clock.");
+    process.exit(1);
+  }
   if (isEval() && isPublic()) {
     console.error("[limits] Refusing to start: CARECUE_EVAL=1 together with CARECUE_PUBLIC=1 would disable the spend guard.");
     process.exit(1);
@@ -80,6 +84,9 @@ function limited(req: Request): boolean {
   if (isEval() && isLoopback(req)) return false;
   return true;
 }
+
+/** Do the limits apply to this caller? (public instance, and not the recorder or a loopback eval run) */
+export const limitsApply = limited;
 
 // ---------- kill switch ----------
 

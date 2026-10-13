@@ -1,4 +1,5 @@
-// Drives the Alexa skill endpoint with fake requests (server must run with ALEXA_SKIP_VERIFY=1).
+// Drives the Alexa skill endpoint with fake requests (server must run with ALEXA_SKIP_VERIFY=1 and CARECUE_CLOCK_CONTROL=1,
+// because it moves the demo clock).
 // node tests/alexa.ts [baseUrl]
 
 import assert from "node:assert/strict";
