@@ -14,11 +14,11 @@
       </span>
       <div>
         <h1>CareCue</h1>
-        <p>A voice-first medication companion for Alexa+ · MCP server demo</p>
+        <p data-i18n="page.tagline">A voice-first medication companion for Alexa+ · MCP server demo</p>
       </div>
     </div>
     <div class="status">
-      <span id="model-status" class="pill">checking model…</span>
+      <span id="model-status" class="pill" data-i18n="page.modelChecking">checking model…</span>
       <span class="pill mono">MCP · Streamable HTTP · 2025-11-25</span>
     </div>
   </header>
@@ -42,8 +42,10 @@
   <main class="stage">
     <!-- Simulated Alexa+ device (Echo Show style): one scene at a time, drawn from what the server reports -->
     <section class="device" aria-label="Simulated Alexa+ device in Rosa's kitchen">
-      <div id="device-label" class="device-label">Rosa's kitchen · Alexa+ (simulated)</div>
-      <div id="replay-badge" class="replay-badge" role="status" hidden></div>
+      <div class="device-head">
+        <div id="device-label" class="device-label">Rosa's kitchen · Alexa+ (simulated)</div>
+        <div id="replay-badge" class="replay-badge" role="status" hidden></div>
+      </div>
       <div id="nomic-banner" class="nomic-banner" role="note" hidden></div>
       <div class="bezel">
         <div id="echo" class="echo" data-theme="day" data-scene="ambient" data-zoom="100">
@@ -84,30 +86,30 @@
         <span id="try-label" class="try-label">Try saying</span>
         <span id="try-chips" class="try-chips"></span>
       </div>
-      <p class="device-note">The simulated Echo draws each screen from what the server reports (tool results and the dose log), never from the model's words. A tap on a button is written through MCP <code>log_dose</code> with no model involved.</p>
+      <p class="device-note" data-i18n-html="page.deviceNote">The simulated Echo draws each screen from what the server reports (tool results and the dose log), never from the model's words. A tap on a button is written through MCP <code>log_dose</code> with no model involved.</p>
     </section>
 
     <!-- Right column: tabs -->
-    <aside class="side" aria-label="Family phone and protocol view">
+    <aside class="side" aria-label="Family phone and protocol view" data-i18n-aria="page.sideLabel">
       <div class="tabs" role="tablist" aria-label="Side panel">
-        <button role="tab" id="tab-phone" aria-controls="panel-phone" aria-selected="true" data-tab="phone">Daniel's phone<span class="dot" hidden></span></button>
-        <button role="tab" id="tab-wire" aria-controls="panel-wire" aria-selected="false" tabindex="-1" data-tab="wire">MCP wire</button>
+        <button role="tab" id="tab-phone" aria-controls="panel-phone" aria-selected="true" data-tab="phone"><span data-i18n="tabPhone">Daniel's phone</span><span class="dot" hidden></span></button>
+        <button role="tab" id="tab-wire" aria-controls="panel-wire" aria-selected="false" tabindex="-1" data-tab="wire" data-i18n="page.tabWire">MCP wire</button>
       </div>
 
       <div role="tabpanel" id="panel-phone" aria-labelledby="tab-phone" class="tabpanel">
-        <section class="phone" aria-label="Caregiver view on Daniel's phone">
+        <section class="phone" aria-label="Caregiver view on Daniel's phone" data-i18n-aria="phone.aria">
           <div class="phone-notch"></div>
           <div class="phone-screen">
             <div class="phone-head">
-              <div class="phone-title">CareCue · Family</div>
+              <div class="phone-title" data-i18n="phone.title">CareCue · Family</div>
               <div id="phone-sub" class="phone-sub">Rosa · today</div>
             </div>
 
             <div id="toast" class="toast" hidden></div>
 
             <div class="stats">
-              <div class="stat"><div id="adh" class="stat-num">–</div><div class="stat-lbl">7-day adherence</div></div>
-              <div class="stat"><div id="refill" class="stat-num">–</div><div class="stat-lbl">refills needed</div></div>
+              <div class="stat"><div id="adh" class="stat-num">–</div><div class="stat-lbl" data-i18n="phone.adherence">7-day adherence</div></div>
+              <div class="stat"><div id="refill" class="stat-num">–</div><div class="stat-lbl" data-i18n="phone.refills">refills needed</div></div>
             </div>
 
             <section id="week" class="week" aria-labelledby="week-title" hidden>
@@ -122,10 +124,10 @@
               <ul id="week-callouts" class="callouts"></ul>
             </section>
 
-            <h3>Today</h3>
+            <h3 data-i18n="phone.today">Today</h3>
             <ol id="timeline" class="timeline"></ol>
 
-            <h3>Alerts</h3>
+            <h3 data-i18n="phone.alerts">Alerts</h3>
             <ul id="alerts" class="alerts"></ul>
           </div>
         </section>
@@ -134,22 +136,22 @@
       <!-- Filled by the wire view (the protocol on the wire): mount point only. -->
       <div role="tabpanel" id="panel-wire" aria-labelledby="tab-wire" class="tabpanel" hidden>
         <div id="wire-mount" class="wire-mount">
-          <p class="wire-empty">The MCP wire view appears here.</p>
+          <p class="wire-empty" data-i18n="wire.emptyMount">The MCP wire view appears here.</p>
         </div>
       </div>
     </aside>
   </main>
 
   <footer class="demo-bar" aria-label="Demo controls">
-    <span class="demo-title">Demo clock</span>
+    <span class="demo-title" data-i18n="page.demoClock">Demo clock</span>
     <button data-time="07:58">7:58 AM</button>
     <button data-time="08:01">8:01 AM</button>
     <button data-time="13:00">1:00 PM</button>
     <button data-time="20:01">8:01 PM</button>
     <button data-time="20:50">8:50 PM</button>
     <button data-time="21:01">9:01 PM</button>
-    <button id="real-time" class="ghost">Real time</button>
-    <button id="reset" class="ghost">Reset demo</button>
+    <button id="real-time" class="ghost" data-i18n="page.realTime">Real time</button>
+    <button id="reset" class="ghost" data-i18n="page.resetDemo">Reset demo</button>
   </footer>
 
   <script src="app.js" type="module"></script>

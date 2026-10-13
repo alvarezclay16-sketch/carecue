@@ -4,21 +4,25 @@
 // If the model cannot be used (not configured, paused, rate limited, error, or a step takes longer than 25 s)
 // the tour plays web/replay/tour.json instead: a real recorded run, labelled as a replay on screen.
 
+import { STR } from "./strings.js";
+
 const ui = window.carecueUI;
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 
 const STEP_TIMEOUT_MS = 25_000;
-const REPLAY_LABEL = ui.REPLAY_LABEL ?? "Replay of a real run (the live demo is resting)";
+// The words of the strip (the step texts, the mode labels, the summary) are in strings.js in EN and ES; the scenario lines the
+// tour says to the model are English (src/scenarios.ts), so the tour plays with the screen in English and gives the visitor's
+// language back when it ends, saying so in the strip.
 
-// kind: setup (no model), say (one model turn), touch (MCP log_dose from the button, no model).
+// kind: setup (no model), say (one model turn), touch (MCP log_dose from the button, no model). The step texts are in strings.js.
 const STEPS = [
-  { id: "morning", kind: "setup", tab: "wire", dwell: 3200, watch: "the reminder on Rosa's screen: Losartan and Metformin are due (no model, only the set-up)" },
-  { id: "hedged", kind: "say", tab: "wire", dwell: 4500, watch: "no tool called and an unchanged dose log: she was not sure, so nothing is written" },
-  { id: "took", kind: "touch", tab: "wire", dwell: 4200, watch: "a TOUCH chip: the button writes the dose through MCP log_dose, no model involved" },
-  { id: "extra", kind: "say", tab: "wire", dwell: 5800, watch: "STOP on the screen and a blue FAMILY NOTIFIED chip; the dose log stays unchanged" },
-  { id: "missed", kind: "setup", tab: "phone", dwell: 4500, watch: "Daniel's phone: the family alert for a dose she did not take (no model)" },
-  { id: "chest", kind: "say", tab: "wire", dwell: 6000, watch: "the emergency number in giant digits and an urgent alert for Daniel" },
+  { id: "morning", kind: "setup", tab: "wire", dwell: 3200 },
+  { id: "hedged", kind: "say", tab: "wire", dwell: 4500 },
+  { id: "took", kind: "touch", tab: "wire", dwell: 4200 },
+  { id: "extra", kind: "say", tab: "wire", dwell: 5800 },
+  { id: "missed", kind: "setup", tab: "phone", dwell: 4500 },
+  { id: "chest", kind: "say", tab: "wire", dwell: 6000 },
 ];
 
 let running = false;
@@ -40,20 +44,35 @@ const scenarioCall = (id) => ui.scenario(id);
 const jsonOf = (path) => ui.api(path).then((r) => (r.ok ? r.json() : Promise.reject(Object.assign(new Error(String(r.status)), { status: r.status }))));
 
 // ---------- the strip ----------
-function paintStrip(state) {
+// view: { running, modeKind: setup | touch | live | replay | liverun, turns, status[], text: (tr) => string, langNote }
+// `text` is a function of the strings table, so the strip is redrawn in the new language when the visitor switches.
+let currentView = null;
+function modeLabel(view, tr) {
+  switch (view.modeKind) {
+    case "replay": return ui.t().replay;
+    case "setup": return tr.modeSetup;
+    case "touch": return tr.modeTouch;
+    case "liverun": return tr.modeLiveRun(view.turns ?? 0);
+    default: return tr.modeLive;
+  }
+}
+function paintStrip(view = currentView) {
   const box = $("tour-strip");
-  if (!box) return;
+  if (!box || !view) return;
+  currentView = view;
+  const tr = ui.t().tour;
   box.hidden = false;
   box.className = "tour-strip";
   const dots = STEPS.map((s, i) => {
-    const st = state.status[i] ?? "todo";
-    return `<li class="dot-${st}" aria-label="Step ${i + 1} ${st}">${i + 1}</li>`;
+    const st = view.status[i] ?? "todo";
+    return `<li class="dot-${st}" aria-label="${esc(tr.stepAria(i + 1, tr.status[st] ?? st))}">${i + 1}</li>`;
   }).join("");
-  box.innerHTML = `<div class="tour-head"><b>Play Rosa's day</b>
-      <span class="tour-mode ${state.mode === "replay" ? "replay" : ""}">${esc(state.mode === "replay" ? REPLAY_LABEL : "live: real agent, real MCP calls")}</span>
-      ${state.running ? `<button type="button" id="tour-stop" class="tour-stop">Stop</button>` : ""}</div>
+  box.innerHTML = `<div class="tour-head"><b>${esc(tr.title)}</b>
+      <span class="tour-mode ${view.modeKind === "replay" ? "replay" : ""}">${esc(modeLabel(view, tr))}</span>
+      ${view.running ? `<button type="button" id="tour-stop" class="tour-stop">${esc(tr.stop)}</button>` : ""}</div>
     <ol class="tour-dots">${dots}</ol>
-    <p class="tour-watch">${esc(state.text)}</p>`;
+    <p class="tour-watch">${esc(view.text(tr))}</p>
+    ${view.langNote ? `<p class="tour-lang">${esc(view.langNote)}</p>` : ""}`;
 }
 
 function setButton(isRunning) {
@@ -63,7 +82,8 @@ function setButton(isRunning) {
   const p = ui.t().panel;
   b.textContent = isRunning ? p.playing : p.play;
 }
-document.addEventListener("carecue:lang", () => setButton(running));
+document.addEventListener("carecue:lang", () => { setButton(running); if (currentView && !$("tour-strip").hidden) paintStrip(); });
+setButton(false); // the button speaks the page language from the first paint
 
 // ---------- replay ----------
 async function loadReplay() {
@@ -154,23 +174,25 @@ async function liveStep(step, utterances) {
 
 /** What is usable right now: the server (set-up, touch) and the model (the three spoken turns) are checked apart. */
 async function preflight() {
-  const out = { server: false, model: false, why: "", utterances: {} };
+  const out = { server: false, model: false, why: "", whyKey: "", whyDetail: "", utterances: {} };
   const u = await ui.usability();
-  out.why = u.why;
+  Object.assign(out, { why: u.why, whyKey: u.whyKey, whyDetail: u.whyDetail });
   if (!u.server) return out;
   try {
     const list = await jsonOf("/api/scenarios");
     out.utterances = Object.fromEntries(list.filter((x) => x.say).map((x) => [x.id, x.say]));
     out.server = true;
-    if (!out.utterances.hedged || !out.utterances.extra || !out.utterances.chest) out.why = "scenarios unavailable";
+    if (!out.utterances.hedged || !out.utterances.extra || !out.utterances.chest) Object.assign(out, { why: "scenarios unavailable", whyKey: "scenarios", whyDetail: "" });
     else out.model = u.model;
   } catch (err) {
-    out.why = `server unavailable (${err.message})`;
+    Object.assign(out, { why: `server unavailable (${err.message})`, whyKey: "server", whyDetail: err.message });
   }
   return out;
 }
 
 // ---------- the tour ----------
+let chosenLang = null; // the visitor's language, put back when the tour ends
+
 async function play() {
   if (running) return;
   running = true;
@@ -179,7 +201,9 @@ async function play() {
   for (let i = 0; i < 20 && ui.isBusy(); i++) await new Promise((r) => setTimeout(r, 100)); // a cut-off voice frees the device
   document.body.classList.add("touring");
   setButton(true);
-  ui.setLang("en-US"); // the scenario lines are English
+  chosenLang = ui.getLang();
+  const spanishVisitor = chosenLang.startsWith("es");
+  ui.setLang("en-US"); // the scenario lines are English: the screen follows them, and the visitor's language comes back at the end
   window.carecueWire?.clear();
   ui.showTab("wire");
 
@@ -190,13 +214,23 @@ async function play() {
   const status = STEPS.map(() => "todo");
   const how = []; // per step: live | replay
   const records = [];
-  const view = { running: true, mode: serverLive && modelLive ? "live" : "replay", status, text: "Starting..." };
-  const note = (t) => { view.text = t; paintStrip(view); };
-  run = { mode: view.mode, started, steps: records, model_turns: 0, notes: pre.why ? [pre.why] : [] };
+  const kindOf = (step, mode) => (mode === "replay" ? "replay" : step.kind === "say" ? "live" : step.kind);
+  const view = {
+    running: true,
+    modeKind: serverLive && modelLive ? "live" : "replay",
+    status,
+    // The visitor's own language says, once, that the tour plays in English.
+    langNote: spanishVisitor ? STR.es.tour.inEnglish : "",
+    text: (tr) => tr.starting,
+  };
+  const note = (fn) => { view.text = fn; paintStrip(view); };
+  run = { mode: view.modeKind, started, steps: records, model_turns: 0, notes: pre.why ? [pre.why] : [] };
+  const whyText = () => ui.restWhy(pre.whyKey, pre.whyDetail);
 
   if (!serverLive || !modelLive) await loadReplay();
   if (!serverLive && !replayData) {
-    note(`The live demo is resting (${pre.why}) and no recorded run is available yet.`);
+    note((tr) => tr.restingNoRecording(whyText()));
+    view.restingNote = true;
     return finish(view, "stopped", how);
   }
 
@@ -204,9 +238,9 @@ async function play() {
     const step = STEPS[i];
     status[i] = "now";
     ui.showTab(step.tab);
-    const watch = `Step ${i + 1}/${STEPS.length} - watch for ${step.watch}`;
+    const watch = (tr) => tr.stepOf(i + 1, STEPS.length) + tr.watch[step.id];
     let mode = (step.kind === "say" ? modelLive : serverLive) ? "live" : "replay";
-    view.mode = mode;
+    view.modeKind = kindOf(step, mode);
     note(watch);
 
     let result = {};
@@ -220,11 +254,13 @@ async function play() {
       if (result.fail || result.skipped) {
         const why = result.fail ?? result.note;
         run.notes.push(`step ${i + 1} ${step.id}: ${why}`);
-        if (step.kind === "say") modelLive = false; // a failed or slow model: the rest of the spoken turns replay
-        else if (result.fail) serverLive = false;
+        if (step.kind === "say") {
+          modelLive = false; // a failed or slow model: the rest of the spoken turns replay
+          window.carecueWire?.discardFailed(pre.utterances[step.id]); // the failed live entry must not sit next to the replayed one
+        } else if (result.fail) serverLive = false;
         mode = "replay"; // this step too, from the recording
-        view.mode = mode;
-        note(`${watch} (the live ${step.kind === "say" ? "model" : "demo"} is not available: ${why})`);
+        view.modeKind = "replay";
+        note((tr) => `${watch(tr)} ${tr.notAvailable(step.kind, why)}`);
       }
     }
     if (mode === "replay") {
@@ -232,7 +268,7 @@ async function play() {
       if (!rec) {
         status[i] = "skipped";
         how[i] = "skipped";
-        note(`Step ${i + 1}/${STEPS.length} - skipped: the live demo is resting and no recording of this step exists.`);
+        note((tr) => tr.skipped(i + 1, STEPS.length));
         await sleep(1500);
         continue;
       }
@@ -259,11 +295,21 @@ function finish(view, outcome, how) {
   run.ms = run.finished - run.started;
   run.how = outcome;
   view.running = false;
-  view.mode = run.mode === "live" ? "live" : "replay";
-  if (!view.text.startsWith("The live demo is resting"))
-    view.text = outcome === "done"
-      ? `Done in ${secs} s: ${run.model_turns} live model ${run.model_turns === 1 ? "turn" : "turns"}, ${calls} tool ${calls === 1 ? "call" : "calls"} shown on the wire${run.mode === "live" ? "" : `. Parts were a replay of a real run, labelled on the wire`}. Press Play to run it again.`
-      : "Stopped. Press Play to start again.";
+  view.modeKind = run.mode === "live" ? "liverun" : "replay";
+  view.turns = run.model_turns;
+  // Give the visitor's language back (unless they switched it themselves during the tour) and say so in the strip.
+  let backTo = null;
+  if (chosenLang && chosenLang !== ui.getLang() && ui.getLang() === "en-US") {
+    backTo = chosenLang;
+    ui.setLang(chosenLang);
+  }
+  chosenLang = null;
+  view.langNote = "";
+  if (!view.restingNote) {
+    const model = run.model_turns;
+    view.text = (tr) =>
+      (outcome === "done" ? tr.done(secs, model, calls, run.mode === "live") : tr.stopped) + (backTo ? tr.backToLang(tr.langName) : "");
+  }
   paintStrip(view);
   running = false;
   document.body.classList.remove("touring");
@@ -288,5 +334,5 @@ $("tour-play")?.addEventListener("click", () => play());
 $("tour-strip")?.addEventListener("click", (e) => { if (e.target.closest("#tour-stop")) stop(); });
 
 // For the recorder (video/record.mjs) and tests: window.carecueTour.play(), .lastRun().
-window.carecueReplay = { load: loadReplay, playRecorded, label: REPLAY_LABEL };
+window.carecueReplay = { load: loadReplay, playRecorded, label: STR.en.replay };
 window.carecueTour = { play, stop, lastRun: () => run, steps: STEPS.map((s) => s.id), isRunning: () => running };

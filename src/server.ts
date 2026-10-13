@@ -47,11 +47,14 @@ app.post("/alexa", ...alexaHandlers());
 app.use(express.json({ limit: "100kb" }));
 
 // Health check for the proxy and the tests. `model` names the provider and model that answer (or will answer first).
+// `clock` is the real server time in the household timezone: a page with no private household (the demo is resting) shows it
+// instead of inventing a time.
 app.get("/health", async (_req, res) => {
+  const clock = { time: localTime(now()), date: localDate(now()) };
   try {
-    res.json({ ok: true, model: (await import("./agent.ts")).modelInfo() });
+    res.json({ ok: true, model: (await import("./agent.ts")).modelInfo(), clock, timezone: process.env.TZ });
   } catch {
-    res.json({ ok: true });
+    res.json({ ok: true, clock, timezone: process.env.TZ });
   }
 });
 

@@ -49,6 +49,13 @@ assert.ok(!isExtraDoseIntent("Can I have another Tamsulosin?"), "unknown name, n
 assert.ok(isExtraDoseIntent("Can I have another Tamsulosin?", ["Tamsulosin"]));
 assert.ok(isExtraDoseIntent("Quiero otra tamsulosina", ["Tamsulosin"]));
 assert.ok(!isExtraDoseIntent("Another prescription arrived", ["Tamsulosin"]));
+// A household medicine matches up to a word boundary: no hit on a word that only starts like it ("pillow", "vitamin store").
+assert.ok(!isExtraDoseIntent("Can I have another pillow?", ["Pill"]), "pillow is not Pill");
+assert.ok(isExtraDoseIntent("Can I have another pill?", ["Pill"]) && isExtraDoseIntent("Dame otra Iron", ["Iron"]) && isExtraDoseIntent("another irons", ["Iron"]));
+assert.ok(!isExtraDoseIntent("another ironing board", ["Iron"]) && !isExtraDoseIntent("otro zincado", ["Zinc"]));
+assert.ok(!isExtraDoseIntent("Another vitamin shop opened", ["Vit"]) && !isExtraDoseIntent("another pillbox", ["Pill"]), "names under 4 letters are never matched on their own");
+assert.ok(isExtraDoseIntent("Quiero otra metformina", []) && isExtraDoseIntent("another Losartán", []) && isExtraDoseIntent("otra tamsulosina", ["Tamsulosin"]));
+assert.ok(isExtraDoseIntent("another vitamin D", ["Vitamin D"]), "a long name keeps the 6-letter stem with a short ending");
 
 // Language guess for the canned sentences: bare "me"/"mi" prove nothing; unclear text takes the household's language.
 const { speaksSpanish } = await import("../src/lang.ts");
@@ -65,6 +72,21 @@ for (const [text, hh, want] of [
   ["mi", true, true],
   ["ok", false, false],
   ["", true, true],
+  // accent-free speech-to-text Spanish about health and distress, with a household that is English
+  ["me duele el pecho", false, true],
+  ["siento mareo", false, true],
+  ["estoy mareada", false, true],
+  ["me cai en la cocina", false, true],
+  ["me duele la cabeza", false, true],
+  ["llama a mi hija", false, true],
+  ["llama a mi hijo", false, true],
+  ["me siento mal", false, true],
+  ["me duele", false, true],
+  ["siento", false, true],
+  // English sentences stay English
+  ["My head hurts and I feel dizzy", true, false],
+  ["Call my daughter", true, false],
+  ["I feel sick", true, false],
 ] as Array<[string, boolean, boolean]>) assert.equal(speaksSpanish(text, hh), want, `${text} (household es=${hh})`);
 
 console.log("\nLEXICON CHECKS PASSED");

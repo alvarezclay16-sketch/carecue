@@ -43,7 +43,7 @@ async function playRecording(id) {
   const rec = await window.carecueReplay?.playRecorded(id);
   if (!rec) {
     ui.setUser("");
-    ui.setReply("The live demo is resting and there is no recording of this scenario yet. Press Play Rosa's day instead.");
+    ui.setReplyFn(() => ui.t().noRecording);
   }
   return rec;
 }
@@ -58,7 +58,7 @@ async function run(id) {
   try {
     ui.showTab(chip.tab);
     const u = await ui.usability();
-    ui.setRest(u.model ? "" : u.why);
+    ui.setRest(u.model ? "" : u.whyKey, u.whyDetail);
     let data = null;
     if (u.server) {
       try {
@@ -102,8 +102,9 @@ async function run(id) {
     const r = out.response ?? {};
     if (out.aborted || !out.response || out.status >= 400 || r.limited || r.degraded) {
       rec.notes.push(out.aborted ? "timeout" : !out.response ? "unreachable" : r.limited ? "limited" : r.degraded ? "unavailable" : `HTTP ${out.status}`);
-      ui.setRest(out.aborted ? "the model took too long" : r.limited ? "daily limit reached for this visitor, or the demo is paused" : "the model is not answering");
+      ui.setRest(out.aborted ? "slow" : r.limited ? "dailyLimit" : "notAnswering");
       rec.mode = "replay";
+      window.carecueWire?.discardFailed(data.utterance); // the failed live entry must not sit next to the replayed one
       await playRecording(id);
       return rec;
     }
@@ -138,7 +139,7 @@ async function startOver() {
     await ui.resetView({ idle: true, quiet: true });
     ui.loadWeek(true);
     const u = await ui.usability();
-    ui.setRest(u.model ? "" : u.why);
+    ui.setRest(u.model ? "" : u.whyKey, u.whyDetail);
   } finally {
     running = false;
     lock(false);

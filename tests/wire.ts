@@ -94,7 +94,8 @@ const tour = web("tour.js");
 assert.ok(tour.includes("STEP_TIMEOUT_MS = 25_000"), "25 s step timeout");
 assert.equal(tour.match(/\{ id: "\w+", kind: "say"/g)?.length, 3, "exactly three model turns in the tour");
 assert.equal(tour.match(/\{ id: "\w+", kind: "(setup|touch|say)"/g)?.length, 6, "six steps");
-assert.ok(tour.includes("Replay of a real run"), "replay label");
+const strings = web("strings.js");
+assert.ok(strings.includes("Replay of a real run (the live demo is resting)") && tour.includes("ui.t().replay"), "replay label (EN and ES live in strings.js)");
 
 // The judge-proof page (static checks; the browser checks live in video/judge-check.mjs).
 for (const id of ["scenario-chips", "start-over", "sandbox-note", "rest-note", "replay-badge", "nomic-banner", "week-strip", "week-callouts", "week-sample"]) assert.ok(html.includes(`id="${id}"`), `#${id}`);

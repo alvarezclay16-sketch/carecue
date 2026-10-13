@@ -5,7 +5,8 @@
 
 const ES_WORDS = new Set(
   ("que hola gracias ayuda pastilla pastillas remedio remedios medicina medicinas tome tomo toca hoy ahora cuando donde como " +
-    "estoy tengo quiero puedo necesito favor bien muy los las del una por para con mis dolor otra dosis manana noche tarde si es se su").split(" "),
+    "estoy tengo quiero puedo necesito favor bien muy los las del una por para con mis dolor otra dosis manana noche tarde si es se su " +
+    "duele duelen siento mareo mareada mareado cai cayo pecho cabeza llama llamar hija hijo mal").split(" "),
 );
 const EN_WORDS = new Set(
   ("the what whats did my pill pills take took thanks thank hello hi tell is are am i im you can could next when please help now today " +

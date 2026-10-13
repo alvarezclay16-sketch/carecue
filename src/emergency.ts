@@ -163,15 +163,25 @@ export function isDistress(text: string): boolean {
 // "another Losartan", "otra Metformina": after another/otra a medicine of the household, one of these common names, or a generic word.
 const COMMON_MEDS = ["metformin", "losartan", "atorvastatin", "amlodipine", "lisinopril", "simvastatin", "omeprazole", "levothyroxine", "aspirin", "warfarin", "insulin", "paracetamol", "ibuprofen"];
 const GENERIC_MED = "(medicine|medicines|medication|medications|med|meds|medicina|medicinas|medicamento|medicamentos|remedio|remedios|pildora|pildoras|comprimido|comprimidos|capsulas?|tabletas?|pastillas?)";
-const stem = (m: string) => m.replace(/[^a-z0-9]/g, "").slice(0, 6);
+const compact = (m: string) => m.replace(/[^a-z0-9]/g, "");
+/**
+ * How a medicine is recognised after "another/otra". A name of 6 or more letters matches by its first 6 letters with a
+ * short ending ("metformina" for Metformin, "losartan" for Losartán), always ending at a word boundary. A name shorter
+ * than 6 letters must be there in full, with at most a plural s/es ("iron", "irons"), so "pillow" never matches "Pill".
+ */
+const namePattern = (m: string): string | null => {
+  const full = compact(m);
+  if (full.length < 4) return null;
+  return full.length < 6 ? `${full}(?:s|es)?\\b` : `${full.slice(0, 6)}\\w{0,${full.length - 6 + 3}}\\b`;
+};
 
 /** Wants another, double or half dose, or says they took a pill again. `medNames`: the household's medicines. */
 export function isExtraDoseIntent(text: string, medNames: string[] = []): boolean {
   const t = norm(text);
   if (!t) return false;
-  // Names match by their first 6 letters, like the rest of the app: "metformina" for Metformin, "losartan" for Losartán.
-  const names = [...new Set([...COMMON_MEDS, ...medNames.map((m) => norm(m))].map(stem).filter((s) => s.length >= 4))];
-  if (names.length && new RegExp(`\\b(another|an other|otra|otro|one more|una mas|uno mas)\\s+(of\\s+|de\\s+)?(my\\s+|the\\s+|mi\\s+|la\\s+|el\\s+)?(${names.join("|")})\\w*`).test(t)) return true;
+  // Names match like the rest of the app (first 6 letters for long names), but always up to a word boundary; see namePattern.
+  const names = [...new Set([...COMMON_MEDS, ...medNames.map((m) => norm(m))].map(namePattern).filter((s): s is string => !!s))];
+  if (names.length && new RegExp(`\\b(another|an other|otra|otro|one more|una mas|uno mas)\\s+(of\\s+|de\\s+)?(my\\s+|the\\s+|mi\\s+|la\\s+|el\\s+)?(${names.join("|")})`).test(t)) return true;
   if (new RegExp(`\\b(another|an other|otra|otro)\\s+(of\\s+|de\\s+)?(my\\s+|the\\s+|mi\\s+|la\\s+|el\\s+)?${GENERIC_MED}\\b`).test(t)) return true;
   // "when do I take it again?" is a schedule question, not an extra dose.
   if (/\b(when|what time|how often|how long|until|cuando|a que hora)\b.{0,40}\b(again|otra vez|de nuevo)\b/.test(t) && !/\b(another|more|extra|otra (mas|pastilla|dosis)|doble)\b/.test(t))

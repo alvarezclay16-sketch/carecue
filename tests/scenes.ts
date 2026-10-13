@@ -135,16 +135,23 @@ const ok = (m: string) => console.log("ok:", m);
   assert.equal(noSwap.scene?.kind, "emergency");
   ok("distress -> support (no digits); emergency outranks support; support never replaces emergency");
 
-  // An urgent notify with no lexicon match on a fresh conversation changes nothing
+  // A sent urgent notify of kind help shows the support scene even when the words are not in the lexicon (derived from the tool result)
   const lone = decide([{ name: "notify_caregiver", input: { severity: "urgent", kind: "help" }, ok: true, guard: null, result: { ok: true } }], "my knee hurts a bit", ctxOf(dist));
-  assert.equal(lone.scene, null);
+  assert.deepEqual(lone.scene, { kind: "support", caregiver: "Daniel" });
+  assert.ok(lone.latch && lone.latch.kind === "support");
+  assert.ok(!JSON.stringify(lone.scene).match(/\d/), "no digits in the support scene");
+  // ... and from a Spanish phrase outside the lexicon, with the reply text irrelevant (not an input)
+  assert.equal(decide([{ name: "notify_caregiver", input: { severity: "urgent", kind: "help" }, ok: true, guard: null, result: { ok: true } }], "ando con la rodilla muy mal", ctxOf(dist)).scene?.kind, "support");
+  // an urgent notify of kind info/wellbeing without a lexicon match still changes nothing
+  for (const kind of ["info", "wellbeing"])
+    assert.equal(decide([{ name: "notify_caregiver", input: { severity: "urgent", kind }, ok: true, guard: null, result: { ok: true } }], "my knee hurts a bit", ctxOf(dist)).scene, null);
   // dizziness: warning notify, no scene
   const dz = fx("dizzy-en");
   assert.equal(turn(dz, 0, ctxOf(dz)).scene, null);
   // a failed urgent notify is not an emergency scene (nothing was sent)
   const failed = decide([{ name: "notify_caregiver", input: { severity: "urgent", kind: "help" }, ok: false, guard: null, result: { ok: false } }], "I have a pain in my chest", ctxOf(dist));
   assert.equal(failed.scene, null);
-  ok("an urgent notify without a lexicon match, a warning notify and a failed notify change nothing");
+  ok("an urgent help notify without a lexicon match -> support; info/wellbeing urgent, warning and failed notifies change nothing");
 }
 
 // ---------- reply independence ----------
@@ -194,6 +201,14 @@ const ok = (m: string) => console.log("ok:", m);
   deriveScene(chest.turns[0].toolCalls, chest.turns[0].user, patientId, t0);
   clearLatch(patientId);
   assert.equal(currentScene(patientId, t0 + 1).kind, "reminder", "clearLatch (Start over) drops it");
+
+  // a sent urgent notify of kind help whose words the lexicon does not know latches the support scene, with no digits
+  const helpCall = { name: "notify_caregiver", input: { severity: "urgent", kind: "help", message: "x" }, ok: true, guard: null, result: { ok: true } };
+  const sup = deriveScene([helpCall], "estoy rara y no se que me pasa", patientId, t0);
+  assert.equal(sup.scene?.kind, "support");
+  assert.equal(currentScene(patientId, t0 + 1000).kind, "support", "/api/state shows the support latch");
+  assert.ok(!JSON.stringify(sup.scene).match(/\d/));
+  clearLatch(patientId);
 
   // a touch-style log through the real care layer -> confirmed with the logged medicines
   const log = care.logDose(patientId, "all_due", "taken", "tapped on the screen");

@@ -3,6 +3,8 @@
 // chat and touch responses), which computes it from MCP tool results and the dose log, never from the reply text.
 // This is host-side rendering in a simulated Echo: a real Alexa+ device cannot be pushed custom scenes through MCP.
 
+import { STR } from "./strings.js";
+
 const $ = (id) => document.getElementById(id);
 const Q = new URLSearchParams(location.search);
 const conversationId = "kitchen-device";
@@ -33,7 +35,7 @@ const I18N = {
       sharedDemo: "Shared demo household",
       demoTime: (where) => `demo time: ${where}`,
       chipsLabel: "Five scenarios",
-      resting: "The live demo is resting right now. Press a scenario to see a recording of a real run.",
+      resting: "The live demo is resting. Tap a scenario for a recording of a real run.",
       chips: {
         extra: ["Extra dose", "She already took her pills and asks for another one: STOP on the screen, the family is told, the dose log does not change."],
         hedged: ["Hedged answer", "\u201cI think I took it, maybe.\u201d Nothing is written down until she is sure."],
@@ -115,11 +117,11 @@ const I18N = {
       playing: "Reproduciendo...",
       startOver: "Empezar de nuevo",
       hint: "No necesita micr\u00f3fono. Cada escenario prepara la casa de Rosa en su propia copia privada y cuesta como m\u00e1ximo un turno real del modelo; cada llamada MCP se ve en el cable.",
-      privateDemo: "Su propia demo privada",
-      sharedDemo: "Casa de demostraci\u00f3n compartida",
-      demoTime: (where) => `hora de demostraci\u00f3n: ${where}`,
+      privateDemo: "Su demo privada",
+      sharedDemo: "Demo compartida",
+      demoTime: (where) => `hora de ${where}`,
       chipsLabel: "Cinco escenarios",
-      resting: "La demo en vivo est\u00e1 descansando. Toque un escenario para ver la grabaci\u00f3n de una ejecuci\u00f3n real.",
+      resting: "La demo en vivo descansa. Toque un escenario para ver una grabaci\u00f3n real.",
       chips: {
         extra: ["Dosis de m\u00e1s", "Ya tom\u00f3 sus pastillas y pide otra: ALTO en pantalla, se avisa a la familia y el registro de dosis no cambia."],
         hedged: ["Respuesta dudosa", "\u201cCreo que la tom\u00e9, tal vez.\u201d No se anota nada hasta que est\u00e9 segura."],
@@ -189,6 +191,8 @@ const I18N = {
     },
   },
 };
+// The replay badge, the resting note, the tour strip, the family phone and the MCP wire tab live in strings.js.
+for (const l of ["en", "es"]) Object.assign(I18N[l], STR[l]);
 const lk = () => (lang.startsWith("es") ? "es" : "en");
 const T = () => I18N[lk()];
 
@@ -251,7 +255,7 @@ const fixtureScene = (kind) => {
   return f[kind] ?? null;
 };
 const SCENE_KINDS = ["ambient", "reminder", "late", "confirmed", "stop", "check_first", "not_written", "emergency", "support", "done"];
-const FX_CLOCK = { time: "08:02", date: "2026-10-14" };
+const FX_CLOCK = { time: "08:02", date: "2026-10-14" }; // only for the ?scene= design pages; a live page never shows it
 
 // ---------- client state ----------
 let serverScene = null; // what /api/state says (the latch if there is one, else the baseline)
@@ -303,7 +307,8 @@ const ICONS = {
 };
 
 function clockHtml() {
-  const c = design ? FX_CLOCK : (clockState ?? FX_CLOCK);
+  const c = design ? FX_CLOCK : clockState;
+  if (!c) return "--:--"; // no household and no server time yet: no made-up clock
   const [h, m] = c.time.split(":").map(Number);
   if (lk() === "es") return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
   return `${h % 12 === 0 ? 12 : h % 12}:${String(m).padStart(2, "0")} <span class="ampm">${h < 12 ? "AM" : "PM"}</span>`;
@@ -377,13 +382,35 @@ function applyScene() {
 let words = []; // [{ el, start, end, text }]
 let hl = null;
 
+// What the caption shows, so a language switch can say it again in the new language:
+//  captionFn: a fixed sentence of the device (reminder line, hint, "written down"...), rebuilt in the new language;
+//  captionFree: words the model or a recording said, which cannot be translated: they are dropped for the idle line.
+let captionFn = null;
+let captionFree = false;
 function setReply(text) {
+  captionFn = null;
+  captionFree = !!text && text !== "…";
+  paintReply(text);
+}
+/** A fixed sentence of the device: `fn()` gives it in the current language. */
+function setReplyFn(fn) {
+  captionFn = fn;
+  captionFree = false;
+  paintReply(fn());
+}
+/** The first-screen line (the due reminder, else the hint). */
+function setIdle() {
+  captionFn = null;
+  captionFree = false;
+  paintReply(idleLine());
+}
+function paintReply(text) {
   stopHighlight();
   const el = $("caption-reply");
   el.textContent = "";
   words = [];
   let pos = 0;
-  for (const part of String(text).split(/(\s+)/)) {
+  for (const part of String(text ?? "").split(/(\s+)/)) {
     if (part === "") continue;
     if (/^\s+$/.test(part)) el.append(document.createTextNode(part));
     else {
@@ -506,7 +533,7 @@ function listen() {
   if (!SR) {
     $("type-input").focus({ preventScroll: true }); // the mic is disabled, but the space bar and old callers land here
     setUser("");
-    setReply(T().noMic);
+    setReplyFn(() => T().noMic);
     return;
   }
   speechSynthesis.cancel();
@@ -549,10 +576,11 @@ const NO_PRIVATE = "no private demo is available right now";
 /** A public visitor whose private demo cannot be made rests: no live turns, no shared household, recordings only. */
 function noPrivateDemo(err) {
   sandboxFailure = err;
-  setRest(NO_PRIVATE);
+  setRest("noPrivate");
   setReplayBadge(false);
   paintSandboxNote(null);
-  if (hintShown) setReply(T().panel.resting);
+  if (hintShown) setIdle();
+  loadHealthClock();
 }
 
 const rawApi = (path, opts = {}) =>
@@ -625,19 +653,36 @@ async function scenario(id) {
 }
 
 // ---------- resting banner and the replay badge ----------
-const REPLAY_LABEL = "Replay of a real run (the live demo is resting)";
-/** Says why live model turns are off (or clears it): the scenarios and the tour then play a recording. */
-function setRest(why) {
+const REPLAY_LABEL = STR.en.replay; // the English text (the recorder reads it); the page shows T().replay
+let restKey = "";
+let restDetail = "";
+let replayOn = false;
+/** The words for a resting reason: a key of strings.js `rest.why` (with a detail for "server"), or a plain text. */
+function restWhy(key, detail) {
+  const w = T().rest.why[key];
+  return typeof w === "function" ? w(detail) : (w ?? key);
+}
+function paintRest() {
   const n = $("rest-note");
   if (!n) return;
-  n.hidden = !why;
-  n.textContent = why ? `The live demo is resting (${why}). The scenarios and Play Rosa's day replay a recording of a real run.` : "";
+  n.hidden = !restKey;
+  n.textContent = restKey ? T().rest.line(restWhy(restKey, restDetail)) : "";
 }
-function setReplayBadge(on) {
+/** Says why live model turns are off (or clears it with ""): the scenarios and the tour then play a recording. */
+function setRest(key, detail = "") {
+  restKey = key || "";
+  restDetail = detail;
+  paintRest();
+}
+function paintReplayBadge() {
   const b = $("replay-badge");
   if (!b) return;
-  b.hidden = !on;
-  b.textContent = on ? REPLAY_LABEL : "";
+  b.hidden = !replayOn;
+  b.textContent = replayOn ? T().replay : "";
+}
+function setReplayBadge(on) {
+  replayOn = !!on;
+  paintReplayBadge();
 }
 
 /**
@@ -645,28 +690,30 @@ function setReplayBadge(on) {
  * (configured, not paused, this visitor not limited, a private demo exists). `why` says what is missing.
  */
 async function usability() {
-  const out = { server: false, model: false, why: "" };
+  // `why`: English text for notes and logs. `whyKey` (+ `whyDetail`): the key of strings.js rest.why, for the resting note.
+  const out = { server: false, model: false, why: "", whyKey: "", whyDetail: "" };
+  const no = (key, detail = "") => { out.whyKey = key; out.whyDetail = detail; out.why = STR.en.rest.why[key] instanceof Function ? STR.en.rest.why[key](detail) : STR.en.rest.why[key]; };
   try {
     await booting;
     if (resting()) {
       // A visitor action is a good moment to try again (the per-hour cap or a full server may have eased).
       await ensureSandbox().catch((err) => { sandboxFailure = err; });
-      if (resting()) { out.why = NO_PRIVATE; return out; }
+      if (resting()) { no("noPrivate"); return out; }
       setRest("");
       await refresh();
     }
     const state = await api("/api/state").then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))));
     out.server = true;
-    if (sandboxFailure) out.why = "no private demo is available right now";
-    else if (!state.model_ready) out.why = "the model is not configured";
+    if (sandboxFailure) no("noPrivate");
+    else if (!state.model_ready) no("noModel");
     else {
       const limits = await api("/api/limits").then((r) => (r.ok ? r.json() : null)).catch(() => null);
-      if (limits?.paused) out.why = "the demo is paused";
-      else if (limits && limits.remaining_turns !== null && limits.remaining_turns < 1) out.why = "this visitor is rate limited";
+      if (limits?.paused) no("paused");
+      else if (limits && limits.remaining_turns !== null && limits.remaining_turns < 1) no("rateLimited");
       else out.model = true;
     }
   } catch (err) {
-    out.why = `server unavailable (${err.message})`;
+    no("server", err.message);
   }
   return out;
 }
@@ -688,11 +735,13 @@ async function ask(text, opts = {}) {
     const data = await res.json();
     const reply = res.ok ? data.reply : data.error || T().wrong;
     Object.assign(out, { status: res.status, response: data, reply });
-    setReply(reply);
+    if (!res.ok && !data.error) setReplyFn(() => T().wrong);
+    else if (!res.ok && resting()) setReplyFn(() => T().panel.resting);
+    else setReply(reply);
     if (res.ok) {
       showOverride(data.scene, data.ttl_s);
       setReplayBadge(false); // this answer is live
-      setRest(data.limited ? "daily limit reached for this visitor, or the demo is paused" : data.degraded ? "the model is not answering" : "");
+      setRest(data.limited ? "dailyLimit" : data.degraded ? "notAnswering" : "");
     }
     announce("carecue:turn", { text, status: res.status, response: data });
     refresh();
@@ -705,9 +754,9 @@ async function ask(text, opts = {}) {
     }
   } catch (err) {
     out.aborted = err?.name === "AbortError";
-    setReply(out.aborted ? "…" : T().offline);
+    if (out.aborted) setReply("…");
+    else setReplyFn(() => T().offline);
     ring("");
-    announce("carecue:turn-end", { kind: "chat", failed: true });
   } finally {
     busy = false;
   }
@@ -726,15 +775,18 @@ async function touch(action, opts = {}) {
     const res = await post("/api/device/touch", { action });
     const data = await res.json();
     let reply;
-    if (!res.ok) reply = data.error || T().wrong;
-    else if (action === "not_yet") reply = T().notYetReply;
+    let say; // the caption as a function of the language, so a switch to ES/EN says it again
+    if (!res.ok) { reply = data.error || T().wrong; say = data.error ? null : () => T().wrong; }
+    else if (action === "not_yet") { say = () => T().notYetReply; reply = say(); }
     else {
       showOverride(data.scene, data.ttl_s);
       const s = data.scene;
-      reply = s?.kind === "confirmed" ? T().writtenCaption(listOf(s.medications), fmtTime(s.at)) : s?.kind === "not_written" ? T().reasons[s.reason] : T().wrong;
+      say = () => (s?.kind === "confirmed" ? T().writtenCaption(listOf(s.medications), fmtTime(s.at)) : s?.kind === "not_written" ? T().reasons[s.reason] : T().wrong);
+      reply = say();
     }
     hintShown = false;
-    setReply(reply);
+    if (say) setReplyFn(say);
+    else setReply(reply);
     Object.assign(out, { status: res.status, response: data, reply });
     announce("carecue:touch", { action, status: res.status, response: data });
     refresh();
@@ -743,8 +795,7 @@ async function touch(action, opts = {}) {
       speak(reply);
     } else await speak(reply);
   } catch {
-    setReply(T().offline);
-    announce("carecue:turn-end", { kind: "touch", failed: true });
+    setReplyFn(() => T().offline);
   } finally {
     busy = false;
     sceneKey = ""; // re-draw so the buttons are live again
@@ -764,7 +815,7 @@ function renderDevice(state) {
   applyScene();
   if (hintShown) {
     const line = idleLine();
-    if ($("caption-reply").textContent !== line) setReply(line); // a due reminder is on the first screen, spoken or not
+    if ($("caption-reply").textContent !== line) setIdle(); // a due reminder is on the first screen, spoken or not
   }
   paintSandboxNote(state);
 }
@@ -894,41 +945,51 @@ function renderWeek(w) {
 }
 
 function renderPhone(state) {
-  $("phone-sub").textContent = `${state.patient} · ${state.clock.spoken}`;
+  paintPhone(state);
+  loadWeek(state);
+}
+
+/** The family phone in the device language: labels, the status words, the times. Server alert messages stay as the server wrote them. */
+function paintPhone(state) {
+  const P = T().phone;
+  $("phone-sub").textContent = P.subToday(state.patient, fmtTime(state.clock.time));
   const a = state.adherence.adherence_percent;
   $("adh").textContent = a === null ? "–" : `${a}%`;
   $("refill").textContent = state.refills.filter((r) => r.needs_refill).length;
 
   $("timeline").innerHTML = state.today.all_today
     .map(
-      (x) => `<li><span class="t">${x.spoken_time}</span><span>${x.medication}</span>
-      <span class="badge ${x.status}">${x.status === "taken" && x.taken_at ? "taken " + fmt(x.taken_at) : x.status}</span></li>`,
+      (x) => `<li><span class="t">${esc(x.time ? fmtTime(x.time) : x.spoken_time)}</span><span>${esc(x.medication)}</span>
+      <span class="badge ${esc(x.status)}">${esc(x.status === "taken" && x.taken_at ? P.taken(fmtTime(x.taken_at)) : (P.status[x.status] ?? x.status))}</span></li>`,
     )
     .join("");
 
   $("alerts").innerHTML = state.alerts.length
     ? state.alerts
         .map(
-          (al) => `<li class="${al.severity} ${al.acknowledged ? "done" : ""}">${escapeHtml(al.message)}
-          <div class="when">${new Date(al.created_at).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })} · ${al.kind.replace("_", " ")}${al.acknowledged ? " · resolved" : ""}</div></li>`,
+          (al) => `<li class="${esc(al.severity)} ${al.acknowledged ? "done" : ""}">${escapeHtml(al.message)}
+          <div class="when">${esc(new Date(al.created_at).toLocaleTimeString(P.locale, { hour: "numeric", minute: "2-digit" }))} · ${esc(P.kind[al.kind] ?? al.kind.replace("_", " "))}${al.acknowledged ? ` · ${esc(P.resolved)}` : ""}</div></li>`,
         )
         .join("")
-    : `<li class="empty">No alerts. All good.</li>`;
+    : `<li class="empty">${esc(P.noAlerts)}</li>`;
 
   renderModelPill(state.model_ready);
-  loadWeek(state);
 }
 
 // The topbar pill reads /api/model: the model and provider that really answered (or will answer first).
 let modelInfo = null;
+let modelReady; // undefined until the first state
 function renderModelPill(ready) {
   const ms = $("model-status");
+  const pg = T().page;
+  if (ready === undefined) return;
+  modelReady = ready;
   if (ready && modelInfo) {
     const where = modelInfo.provider === "Amazon Bedrock" && modelInfo.region ? ` - ${modelInfo.region}` : "";
     ms.textContent = `${modelInfo.model_name} - ${modelInfo.provider}${where}`;
-    ms.title = modelInfo.last_receipt ? `request ${modelInfo.last_receipt.request_id ?? "n/a"} - ${modelInfo.last_receipt.latency_ms} ms` : "no model call yet";
+    ms.title = modelInfo.last_receipt ? `request ${modelInfo.last_receipt.request_id ?? "n/a"} - ${modelInfo.last_receipt.latency_ms} ms` : pg.modelNoCall;
   } else {
-    ms.textContent = ready ? "voice agent: ready" : "voice agent: add model credentials";
+    ms.textContent = ready ? pg.modelReady : pg.modelAdd;
     ms.removeAttribute("title");
   }
   ms.className = "pill " + (ready ? "ok" : "bad");
@@ -953,7 +1014,34 @@ async function refresh() {
     renderTry(state);
   } catch {
     if (design) { paintChrome(); applyScene(); }
+    else if (resting()) loadHealthClock();
   }
+}
+
+// With no private household the page cannot read /api/state: show the real server time from /health (or no clock), never a made-up one.
+let healthAt = 0;
+let healthModel = ""; // the model /health names, shown while no state has said whether it is configured
+function paintModelFromHealth() {
+  if (modelReady !== undefined || !healthModel) return;
+  const ms = $("model-status");
+  ms.textContent = healthModel;
+  ms.className = "pill";
+}
+async function loadHealthClock() {
+  if (design || Date.now() - healthAt < 10_000) return;
+  healthAt = Date.now();
+  try {
+    const r = await fetch("/health", { cache: "no-store" });
+    const h = r.ok ? await r.json() : null;
+    if (h?.clock?.time && h?.clock?.date) {
+      clockState = { time: h.clock.time, date: h.clock.date, shifted: false };
+      if (h.model?.id) healthModel = `${h.model.provider} ${h.model.id}`;
+      paintModelFromHealth();
+      sceneKey = "";
+      paintChrome();
+      applyScene();
+    }
+  } catch {}
 }
 
 // ---------- proactive events (reminders + caregiver pushes) ----------
@@ -981,10 +1069,15 @@ async function pollEvents() {
     for (const e of events) {
       lastEventId = Math.max(lastEventId, e.id);
       if (e.kind === "reminder" && !busy && !replaying) {
-        hintShown = false;
+        // The caption is the device's own reminder line in the device language (built from the due medicines the
+        // server reports), not the server's text, which is in the household language.
         setUser("");
-        setReply(e.text);
-        speak(e.text, "reminder");
+        hintShown = true;
+        await refresh();
+        const line = idleLine();
+        const reminderScene = serverScene && (serverScene.kind === "reminder" || serverScene.kind === "late");
+        if (!reminderScene) { hintShown = false; setReply(e.text); }
+        speak(reminderScene ? line : e.text, "reminder");
       } else if (e.kind === "alert") {
         toast(e.text);
       }
@@ -1035,7 +1128,7 @@ function paintStatic() {
   paintTheme();
   paintChrome();
   if ($("try-label")) $("try-label").textContent = t.trySaying;
-  if (hintShown) setReply(idleLine());
+  if (hintShown) setIdle();
   paintNoMic();
   paintPanel();
 }
@@ -1052,27 +1145,50 @@ function paintPanel() {
   const w = T().week;
   set("week-title", w.title);
   document.querySelectorAll("[data-wk]").forEach((e) => (e.textContent = w[e.dataset.wk]));
+  // Static page labels: data-i18n="a.b" is the text, data-i18n-html the markup, data-i18n-aria the aria-label.
+  const at = (path) => path.split(".").reduce((o, k) => o?.[k], T());
+  document.querySelectorAll("[data-i18n]").forEach((e) => { const v = at(e.dataset.i18n); if (typeof v === "string") e.textContent = v; });
+  document.querySelectorAll("[data-i18n-html]").forEach((e) => { const v = at(e.dataset.i18nHtml); if (typeof v === "string") e.innerHTML = v; });
+  document.querySelectorAll("[data-i18n-aria]").forEach((e) => { const v = at(e.dataset.i18nAria); if (typeof v === "string") e.setAttribute("aria-label", v); });
+  document.documentElement.lang = lk();
+  document.title = T().page.title;
+  paintRest();
+  paintReplayBadge();
   if (lastWeek) renderWeek(lastWeek);
-  if (lastState) paintSandboxNote(lastState);
+  if (lastState) { paintSandboxNote(lastState); paintPhone(lastState); }
   else if (resting()) paintSandboxNote(null);
+  if (modelReady !== undefined) renderModelPill(modelReady);
+  else if (healthModel) paintModelFromHealth();
+  else $("model-status").textContent = T().page.modelChecking;
   announce("carecue:lang", { lang: lk() });
 }
 
+/** After a language switch: fixed sentences are said again in the new language; words of the model or of a recording
+ * (which cannot be translated) give way to the first-screen line, so no caption stays behind in the old language. */
+function relocalizeCaption() {
+  if (design) paintDesignCaptions();
+  else if (captionFn) paintReply(captionFn());
+  else if (captionFree) {
+    setUser("");
+    hintShown = true;
+    setReplayBadge(false); // the recording it labelled is off the screen
+  }
+}
+
 function setLang(l, rerender = true) {
+  const changed = l !== lang;
   lang = l;
   document.querySelectorAll(".lang button").forEach((x) => {
     const on = x.dataset.lang === l;
     x.classList.toggle("on", on);
     x.setAttribute("aria-pressed", String(on));
   });
+  if (changed) relocalizeCaption();
+  sceneKey = "";
+  paintStatic();
   if (rerender) {
-    sceneKey = "";
-    paintStatic();
     applyScene();
     refresh();
-  } else {
-    sceneKey = "";
-    paintStatic();
   }
 }
 
@@ -1152,9 +1268,18 @@ $("reset").addEventListener("click", async () => {
   override = null;
   hintShown = true;
   setUser("");
-  setReply(T().hint);
+  setIdle();
   refresh();
 });
+
+/** The caption pair of the ?scene= design page, in the current language. */
+function paintDesignCaptions() {
+  const [u, r] = T().fxCaptions[design] ?? ["", ""];
+  hintShown = false;
+  setUser(u);
+  setReplyFn(() => T().fxCaptions[design]?.[1] ?? "");
+  return u;
+}
 
 // Design-review and test hook: draw any scene (fixture data unless given), for `ttl_s` seconds when live.
 function setSceneHook(kind, data, ttl_s) {
@@ -1164,10 +1289,7 @@ function setSceneHook(kind, data, ttl_s) {
     design = kind;
     designData = data ?? null;
     sceneKey = "";
-    const [u, r] = T().fxCaptions[kind] ?? ["", ""];
-    hintShown = false;
-    setUser(u);
-    setReply(r);
+    paintDesignCaptions();
     applyScene();
     return activeScene();
   }
@@ -1212,7 +1334,7 @@ async function resetView(opts = {}) {
 window.carecueUI = {
   showTab, wireMount: $("wire-mount"), api, post,
   ask, touch, refresh, resetView, setLang, showOverride, setUser, setReply, speak, toast,
-  scenario, usability, ensureSandbox, setRest, setReplayBadge, REPLAY_LABEL, loadWeek: (force) => api("/api/state").then((r) => r.json()).then((st) => loadWeek(st, force ?? true)).catch(() => {}),
+  scenario, usability, ensureSandbox, setRest, setReplayBadge, setReplyFn, restWhy, REPLAY_LABEL, loadWeek: (force) => api("/api/state").then((r) => r.json()).then((st) => loadWeek(st, force ?? true)).catch(() => {}),
   ready: booting,
   sandboxFailure: () => sandboxFailure,
   resting,
@@ -1222,12 +1344,7 @@ window.carecueUI = {
 };
 
 setLang(lang, false);
-if (design) {
-  const [u, r] = T().fxCaptions[design] ?? ["", ""];
-  hintShown = false;
-  setUser(u);
-  setReply(r);
-}
+if (design) paintDesignCaptions();
 paintStatic();
 applyScene();
 if (!SR && !design) $("type-input").focus({ preventScroll: true }); // no microphone: the big text box is the way in

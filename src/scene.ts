@@ -101,9 +101,11 @@ export function decide(calls: Call[], text: string, ctx: Ctx): Decision {
     if (active.kind === "support" && emergency) return newLatch("emergency");
     return { scene: active.scene, ttl_s: left(active) };
   }
-  // (2) emergency, (3) support. An urgent notify with no lexicon match changes nothing.
+  // (2) emergency, (3) support. Support also follows from the tool result alone: a sent urgent notify of kind help whose
+  // words the lexicon does not know (the agent judged it urgent) still shows the support scene, with no digits.
+  // A sent urgent notify of another kind needs the distress lexicon as before; a failed notify changes nothing.
   if (emergency) return newLatch("emergency");
-  if (calls.some((c) => okNotify(c, "urgent")) && isDistress(text)) return newLatch("support");
+  if (urgentHelp || (calls.some((c) => okNotify(c, "urgent")) && isDistress(text))) return newLatch("support");
 
   const transient = (scene: Scene, ttl: number): Decision => ({ scene, ttl_s: ttl });
 
