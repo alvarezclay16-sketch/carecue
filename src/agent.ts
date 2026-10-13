@@ -11,6 +11,7 @@ import { agentToken } from "./agent-token.ts";
 import { caregiversOf, crisisLine, emergencyNumber, getPatient, todaySchedule } from "./care.ts";
 import { now, spokenTime, spokenTimeEs } from "./clock.ts";
 import { patientLanguage } from "./households.ts";
+import { speaksSpanish } from "./lang.ts";
 import { buildToolTrace, type ToolAnnotations, type ToolSource, type ToolTrace } from "./trace.ts";
 
 export type { ToolSource, ToolTrace } from "./trace.ts";
@@ -389,13 +390,6 @@ export type AgentTurn = {
 
 const locks = new Map<string, Promise<unknown>>();
 
-/** Was this turn spoken in Spanish? (Used only for the few fixed fallback sentences.) */
-function speaksSpanish(text: string, patientId: number): boolean {
-  if (/[¿¡ñáéíóú]|\b(qué|que|me|mi|tomé|pastilla|remedio|hola|sí|gracias|ayuda)\b/i.test(text)) return true;
-  if (/\b(the|what|did|my|pill|take|took|thanks|hello)\b/i.test(text)) return false;
-  return patientLanguage(getPatient(patientId)) === "es";
-}
-
 export function fallbackReply(kind: "unavailable" | "refusal" | "lost", es: boolean, emergency: string): string {
   const en = {
     unavailable: `I can't help right now and I haven't written anything down. If it's an emergency, call ${emergency}; otherwise please tell your family.`,
@@ -435,7 +429,7 @@ async function chatTurn(key: string, userText: string, patientId: number, retrie
     : SYSTEM_BLOCKS;
   const convo = conversation(key);
   const toolCalls: ToolTrace[] = [];
-  const es = speaksSpanish(userText, patientId);
+  const es = speaksSpanish(userText, patientLanguage(getPatient(patientId)) === "es");
   const mark = convo.messages.length;
 
   const turnText = bare ? userText : `${contextLine(patientId)}\n${userText}`;

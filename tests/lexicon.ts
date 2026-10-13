@@ -44,4 +44,27 @@ assert.equal(failures, 0, `${failures} lexicon failures`);
 // The rate-limit bypass uses the union of emergency and distress, never extra-dose.
 assert.ok(isUrgentText("I have a pain in my chest") && isUrgentText("Soy una carga") && !isUrgentText("I'll take another one"));
 assert.ok(!isUrgentText("") && !isUrgentText(undefined as unknown as string));
+// A medicine that is not in the built-in list is recognised through the household's own list.
+assert.ok(!isExtraDoseIntent("Can I have another Tamsulosin?"), "unknown name, no household list: not matched");
+assert.ok(isExtraDoseIntent("Can I have another Tamsulosin?", ["Tamsulosin"]));
+assert.ok(isExtraDoseIntent("Quiero otra tamsulosina", ["Tamsulosin"]));
+assert.ok(!isExtraDoseIntent("Another prescription arrived", ["Tamsulosin"]));
+
+// Language guess for the canned sentences: bare "me"/"mi" prove nothing; unclear text takes the household's language.
+const { speaksSpanish } = await import("../src/lang.ts");
+for (const [text, hh, want] of [
+  ["Tell me what is next", true, false],
+  ["Tell me what is next", false, false],
+  ["Give me my pills please", true, false],
+  ["What did I take today?", true, false],
+  ["Me tome la pastilla", false, true],
+  ["¿Qué remedio me toca ahora?", false, true],
+  ["ayuda por favor", false, true],
+  ["me", true, true],
+  ["me", false, false],
+  ["mi", true, true],
+  ["ok", false, false],
+  ["", true, true],
+] as Array<[string, boolean, boolean]>) assert.equal(speaksSpanish(text, hh), want, `${text} (household es=${hh})`);
+
 console.log("\nLEXICON CHECKS PASSED");

@@ -7,7 +7,7 @@ import type { Request } from "express";
 import { db, demoPatientId, resetDemo } from "./db.ts";
 import * as care from "./care.ts";
 import { createHousehold, deleteHousehold } from "./households.ts";
-import { clientIp, limitsApply } from "./limits.ts";
+import { clientIp, gateCreate, limitsApply } from "./limits.ts";
 import { clearLatch } from "./scene.ts";
 import { applyScenario, isScenarioId, type Lang, type ScenarioId } from "./scenarios.ts";
 import { resetHouseholdData } from "./sample.ts";
@@ -51,6 +51,10 @@ export async function createSandbox(req: Request, opts: { scenario?: string; lan
   }
   if (liveCount() >= sandboxCfg.max()) await purgeIdle(15 * 60); // make room: anything idle for 15 minutes
   if (liveCount() >= sandboxCfg.max()) return { ok: false, status: 503, error: "The live demo is full right now. Press Play Rosa's day to watch a recorded run." };
+  // The shared household-creation limit is charged here, once, and only for a sandbox that is really going to be made
+  // (a refusal above costs nothing). The route must not call gateCreate for sandboxes itself.
+  const wait = gateCreate(req);
+  if (wait) return { ok: false, status: 429, error: "Too many new demos from this address. Please try again later.", retry_after_s: wait };
 
   const scenario: ScenarioId = opts.scenario && isScenarioId(opts.scenario) ? opts.scenario : "morning";
   const lang: Lang = opts.lang === "es" ? "es" : "en";
@@ -68,6 +72,25 @@ export async function createSandbox(req: Request, opts: { scenario?: string; lan
   const outcome = await applyScenario(patientId, scenario, opts.lang === "es" ? "es" : opts.lang === "en" ? "en" : undefined);
   return { ok: true, sandbox_id: id, patient_id: patientId, lang: outcome.lang, scenario, utterance: outcome.utterance, replay: outcome.replay };
 }
+
+/** Forgets addresses whose last sandbox is older than the hourly window, so the map cannot grow without bound. Returns how many went. */
+export function pruneCreated(nowMs = Date.now()): number {
+  const cutoff = nowMs - 3_600_000;
+  let gone = 0;
+  for (const [ip, list] of created) {
+    const keep = list.filter((t) => t > cutoff);
+    if (keep.length && keep.length === list.length) continue;
+    if (keep.length) created.set(ip, keep);
+    else {
+      created.delete(ip);
+      gone++;
+    }
+  }
+  return gone;
+}
+
+/** How many addresses the per-IP sandbox counter is holding (for tests). */
+export const createdSize = () => created.size;
 
 /** The household a demo call is about: the caller's sandbox, or the shared demo household when no header was sent. */
 export function pidFor(req: Request): number | undefined {
@@ -153,10 +176,11 @@ export async function resetPlaygroundIfIdle(): Promise<boolean> {
 }
 
 let jobs: NodeJS.Timeout | undefined;
-/** The watchdog: purges idle sandboxes and re-seeds a dirty, idle shared playground. */
+/** The watchdog: purges idle sandboxes, prunes the per-address counter and re-seeds a dirty, idle shared playground. */
 export function startSandboxJobs(): void {
   if (jobs) return;
   jobs = setInterval(() => {
+    pruneCreated();
     purgeIdle(sandboxCfg.ttlS()).catch((e) => console.error("[sandbox] purge failed:", (e as Error).message));
     resetPlaygroundIfIdle().catch((e) => console.error("[sandbox] playground reset failed:", (e as Error).message));
   }, Math.max(500, sandboxCfg.sweepS() * 1000));

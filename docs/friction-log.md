@@ -10,6 +10,7 @@ Kept while building CareCue for the Alexa+ track. Each entry: task, steps, expec
 - **Steps:** Created the account → opened Bedrock → Model catalog → Claude Opus 5.5 → submitted the Anthropic first-time use case form → generated a long-term API key → called the model.
 - **Expected:** The call succeeds once the use case form is submitted (the console says models are available by default).
 - **Actual:** `403 permission_error: "anthropic.claude-opus-5-5 is not available for this account"`. Same for Sonnet 5.5, Haiku 4.5 and Opus 4.8, on both the Mantle endpoint and bedrock-runtime with `us.` / `global.` inference profiles. The console gives no hint of what is missing (the free-tier page and billing page look normal, and a payment method is on file).
+- **Update (2026-10-12):** since then `bedrock-runtime` InvokeModel now answers 200 for Opus 4.6, Opus 4.5, Sonnet 4.6, Sonnet 4.5 and Haiku 4.5 (`docs/bedrock-probe.txt`); the 5.x models and Opus 4.8 still return 403, so the Claude API stays the failover and the baseline.
 - **Severity:** Blocker (no model = no voice agent).
 - **Workaround:** Opened an "Account and billing → Account Activation → Bedrock Allowlisting" support case. Kept building the MCP server and tested it with a scripted MCP client while waiting.
 - **Suggestion:** Return an actionable error (e.g. "account pending activation, typically N hours" or a link to the allowlisting case), and show the account's model eligibility on the model card next to the use case form.

@@ -169,7 +169,13 @@ async function newSandbox(scenario?: string, ip = newIp()) {
   const s = await call("/api/sandbox", { ip: ip2, body: {} });
   assert.equal(s.status, 429, "the 4th sandbox in an hour from one address is refused");
   assert.ok(Number(s.headers.get("retry-after")) > 0);
-  ok("household creation 429 after 4/hour; sandbox creation 429 after 3/hour");
+  // a refused sandbox costs no household slot, and a sandbox costs exactly one
+  const ip3 = newIp();
+  for (let i = 0; i < 3; i++) await newSandbox(undefined, ip3);
+  assert.equal((await call("/api/sandbox", { ip: ip3, body: {} })).status, 429);
+  assert.equal((await call("/api/limits", { ip: ip3 })).json.detail.households_per_hour.remaining, 1, "3 sandboxes = 3 slots; the refused 4th is free");
+  assert.equal((await call("/api/app/households", { ip: ip3, body: { patientName: "P", caregiverName: "C" } })).status, 200);
+  ok("household creation 429 after 4/hour; sandbox creation 429 after 3/hour; sandbox counted once");
 }
 
 // ---------- scenarios: deterministic states ----------

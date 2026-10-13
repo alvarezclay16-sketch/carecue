@@ -51,7 +51,7 @@ A voice assistant that is already in the kitchen is the most natural place for t
 
 - `src/mcp.ts` — the MCP server: tools, resource, prompt, server instructions (safety rules for the model).
 - `src/care.ts` — the domain logic: schedule, dose log, double-dose guard, adherence, refill forecast, escalation.
-- `src/agent.ts` — the simulated Alexa+ brain: **Claude** (Opus) with the MCP server as its only tools. It uses the Claude API when `ANTHROPIC_API_KEY` is set, and **Amazon Bedrock** (`AnthropicBedrockMantle`) with AWS credentials or `CARECUE_PROVIDER=bedrock`. The demo runs on the Claude API because our new AWS account is still waiting for Bedrock model access (see `docs/friction-log.md`).
+- `src/agent.ts` — the simulated Alexa+ brain: **Claude** (Opus) with the MCP server as its only tools. It calls **Amazon Bedrock** (`bedrock-runtime` through `AnthropicBedrock`) with AWS credentials or `CARECUE_PROVIDER=bedrock`, and the Claude API (`ANTHROPIC_API_KEY`) as the provider or as failover (`CARECUE_PROVIDER=auto`). On our account the Claude 4.x models work on Bedrock and the 5.x ones return 403; the 4.x models are benchmarked in `docs/safety-scorecard.md`, and the shipping primary is chosen from that scorecard (see `docs/friction-log.md`).
 - `src/server.ts` — one process serving `/mcp`, `/api/*` and the web device.
 - `web/` — the Alexa+ device simulator (Echo Show-style screen, light bar, push-to-talk) and the caregiver phone.
 
@@ -109,6 +109,8 @@ Connecting Alexa takes one sentence: the family app shows a code, and the senior
 ### Deploy
 
 The demo server runs on a single Amazon Lightsail instance (Node 24 + Caddy for automatic HTTPS). `npm start` with `HOST=127.0.0.1`, behind any TLS reverse proxy; the Alexa endpoint verifies Amazon's request signatures (set `ALEXA_SKILL_ID`).
+
+**Reverse proxy and `X-Forwarded-For`:** the spend guard and the sandbox limits key on the client address. When the server sits behind a proxy (Caddy, nginx, a load balancer) the proxy MUST set `X-Forwarded-For` to the real client address; the server trusts only the **last** entry of that header, and only when the TCP peer is the loopback address. Without it every visitor looks like one address (or the proxy's), so one person can use up everyone's limit. Caddy's `reverse_proxy` sets it by default; with nginx add `proxy_set_header X-Forwarded-For $remote_addr;` (use `$remote_addr`, not `$proxy_add_x_forwarded_for`, so a client cannot forge earlier entries). Run the server on `127.0.0.1` (`HOST=127.0.0.1`) so nothing can reach it around the proxy.
 
 ### Privacy
 

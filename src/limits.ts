@@ -81,6 +81,8 @@ function hasRecorderKey(req: Request): boolean {
 function limited(req: Request): boolean {
   if (!isPublic()) return false;
   if (hasRecorderKey(req)) return false;
+  // Defence in depth: assertBootSafe() refuses to boot with EVAL and PUBLIC together, so this line is unreachable on a
+  // running server. It stays only to state the intent (loopback eval runs are never limited) next to the check that guards it.
   if (isEval() && isLoopback(req)) return false;
   return true;
 }
@@ -134,14 +136,14 @@ setInterval(() => {
 // ---------- model turns ----------
 
 export type Verdict =
-  | { ok: true; via: "open" | "normal" | "urgent" | "recorder" }
+  | { ok: true }
   | { ok: false; reason: "paused" | "limited" | "urgent_exhausted"; urgent: boolean };
 
 /** Decide whether this chat turn may reach the model, and count it if so. */
 export function gateModelTurn(req: Request, text: string, tokenKey?: string): Verdict {
   const urgent = isUrgentText(text);
   if (isPaused()) return { ok: false, reason: "paused", urgent };
-  if (!limited(req)) return { ok: true, via: isPublic() ? "recorder" : "open" };
+  if (!limited(req)) return { ok: true };
   rollDay();
   const ip = clientIp(req);
   const windowMs = cfg.burstWindowMin * 60_000;
@@ -156,7 +158,7 @@ export function gateModelTurn(req: Request, text: string, tokenKey?: string): Ve
     ipDay.set(ip, ipCount + 1);
     globalDay++;
     if (tokenKey) tokenDay.set(tokenKey, tokCount + 1);
-    return { ok: true, via: "normal" };
+    return { ok: true };
   }
   if (!urgent) return { ok: false, reason: "limited", urgent };
   // Emergency, distress and the like skip the caps, within their own small budget.
@@ -164,7 +166,7 @@ export function gateModelTurn(req: Request, text: string, tokenKey?: string): Ve
   if (u >= cfg.urgentIpDay || urgentGlobalDay >= cfg.urgentGlobalDay) return { ok: false, reason: "urgent_exhausted", urgent };
   urgentIpDay.set(ip, u + 1);
   urgentGlobalDay++;
-  return { ok: true, via: "urgent" };
+  return { ok: true };
 }
 
 export const CANNED = {

@@ -160,10 +160,19 @@ export function isDistress(text: string): boolean {
   return !!t && any(DISTRESS, t);
 }
 
-/** Wants another, double or half dose, or says they took a pill again. */
-export function isExtraDoseIntent(text: string): boolean {
+// "another Losartan", "otra Metformina": after another/otra a medicine of the household, one of these common names, or a generic word.
+const COMMON_MEDS = ["metformin", "losartan", "atorvastatin", "amlodipine", "lisinopril", "simvastatin", "omeprazole", "levothyroxine", "aspirin", "warfarin", "insulin", "paracetamol", "ibuprofen"];
+const GENERIC_MED = "(medicine|medicines|medication|medications|med|meds|medicina|medicinas|medicamento|medicamentos|remedio|remedios|pildora|pildoras|comprimido|comprimidos|capsulas?|tabletas?|pastillas?)";
+const stem = (m: string) => m.replace(/[^a-z0-9]/g, "").slice(0, 6);
+
+/** Wants another, double or half dose, or says they took a pill again. `medNames`: the household's medicines. */
+export function isExtraDoseIntent(text: string, medNames: string[] = []): boolean {
   const t = norm(text);
   if (!t) return false;
+  // Names match by their first 6 letters, like the rest of the app: "metformina" for Metformin, "losartan" for Losartán.
+  const names = [...new Set([...COMMON_MEDS, ...medNames.map((m) => norm(m))].map(stem).filter((s) => s.length >= 4))];
+  if (names.length && new RegExp(`\\b(another|an other|otra|otro|one more|una mas|uno mas)\\s+(of\\s+|de\\s+)?(my\\s+|the\\s+|mi\\s+|la\\s+|el\\s+)?(${names.join("|")})\\w*`).test(t)) return true;
+  if (new RegExp(`\\b(another|an other|otra|otro)\\s+(of\\s+|de\\s+)?(my\\s+|the\\s+|mi\\s+|la\\s+|el\\s+)?${GENERIC_MED}\\b`).test(t)) return true;
   // "when do I take it again?" is a schedule question, not an extra dose.
   if (/\b(when|what time|how often|how long|until|cuando|a que hora)\b.{0,40}\b(again|otra vez|de nuevo)\b/.test(t) && !/\b(another|more|extra|otra (mas|pastilla|dosis)|doble)\b/.test(t))
     return false;

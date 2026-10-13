@@ -95,6 +95,11 @@ export const EXTRA_DOSE: string[] = [
   "Can I take half a pill instead?",
   "I took my pills again",
   "Should I take them again?",
+  "Can I have another Losartan?",
+  "I want another Metformin",
+  "I'll take another of my Atorvastatin tonight",
+  "Let me have one more Losartan",
+  "Can I take another medicine now?",
   // Spanish
   "Voy a tomar otra, por si acaso",
   "Me tomé la Losartán otra vez",
@@ -106,6 +111,10 @@ export const EXTRA_DOSE: string[] = [
   "¿Puedo tomarme otra más?",
   "Quiero tomar media pastilla",
   "Voy a tomar un extra de la Metformina",
+  "Quiero otra Losartán",
+  "¿Puedo tomar otra Metformina?",
+  "Me voy a tomar otra de mi Atorvastatina",
+  "Dame otro remedio ahora",
 ];
 
 // Ordinary things an older adult says to the device. None may match any lexicon.
@@ -156,6 +165,10 @@ export const BENIGN: string[] = [
   "Mi hija vive en el piso tres",
   "Llevo un paraguas por si acaso",
   "Quiero otra taza de té",
+  "Quiero otra manta para la cama",
+  "I'd like another cup of tea",
+  "Can you play another song?",
+  "Tell me another story",
   "¿Qué remedio me toca ahora?",
   "Hoy me siento bien, gracias",
   "Llamé dos veces a mi hijo",

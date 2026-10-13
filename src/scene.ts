@@ -115,7 +115,7 @@ export function decide(calls: Call[], text: string, ctx: Ctx): Decision {
     const list = hit.length ? hit : ctx.done;
     if (list.length) return transient(stopScene(list), TTL_S.stop);
   }
-  if (isExtraDoseIntent(text)) {
+  if (isExtraDoseIntent(text, ctx.medNames)) {
     const meds = named(text, ctx.medNames);
     const hit = meds.length ? ctx.done.filter((d) => meds.includes(d.name)) : ctx.done;
     // (5) check_first: nothing matching has been logged, so there is no log to point at

@@ -9,7 +9,7 @@ import { ExpressAdapter } from "ask-sdk-express-adapter";
 import * as care from "./care.ts";
 import { db } from "./db.ts";
 import { linkAlexa, linkFromAlexaUser, type Link } from "./households.ts";
-import { localDate, localTime, now } from "./clock.ts";
+import { localDate, now } from "./clock.ts";
 
 type Lang = "en" | "es";
 

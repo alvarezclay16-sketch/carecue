@@ -22,7 +22,8 @@ import {
 } from "./households.ts";
 import { assertBootSafe, CANNED, describe, evalHookAllowed, gateCreate, gateMcp, gateModelTurn } from "./limits.ts";
 import { atLocal, clockControlEnabled, isShifted, localDate, localTime, now, resetClock, setNow, spokenTime } from "./clock.ts";
-import { baselineScene, clearAllLatches, currentScene, deriveScene } from "./scene.ts";
+import { speaksSpanish } from "./lang.ts";
+import { clearAllLatches, currentScene, deriveScene } from "./scene.ts";
 import { applyScenario, isScenarioId, scenarioList, type Lang } from "./scenarios.ts";
 import { createSandbox, pidFor, restartHousehold, sandboxIdOf, startSandboxJobs, touchPlayground } from "./sandbox.ts";
 import { ensureDemoHistory, weekView, SAMPLE_LABEL } from "./sample.ts";
@@ -73,9 +74,8 @@ const hasModelCredentials = () =>
     process.env.ANTHROPIC_AUTH_TOKEN
   );
 
-/** Was this turn spoken in Spanish? (Only picks the language of the few canned sentences.) */
-const wantsSpanish = (text: string, patientId: number) =>
-  /[¿¡ñáéíóú]|\b(qué|me|mi|tomé|pastilla|remedio)\b/i.test(text) || care.getPatient(patientId).preferred_language === "es";
+/** Was this turn spoken in Spanish? (Only picks the language of the few canned sentences; unclear text takes the household's language.) */
+const wantsSpanish = (text: string, patientId: number) => speaksSpanish(text, care.getPatient(patientId).preferred_language === "es");
 
 /**
  * The only door to the model for chat. Every route that can reach a paid model goes through here,
@@ -354,12 +354,8 @@ const demo = (fn: Scoped) => (req: Request, res: Response) => {
 
 /** A private demo household for this visitor, set up for a scenario (default: a fresh morning with a reminder due). */
 app.post("/api/sandbox", async (req, res) => {
-  const wait = gateCreate(req);
-  if (wait) {
-    res.set("Retry-After", String(wait));
-    return void res.status(429).json({ error: "Too many new demos from this address. Please try again later.", retry_after_s: wait });
-  }
   try {
+    // createSandbox charges the shared household-creation limit itself, exactly once.
     const r = await createSandbox(req, { scenario: req.body?.scenario, lang: req.body?.lang });
     if (!r.ok) {
       if (r.retry_after_s) res.set("Retry-After", String(r.retry_after_s));
