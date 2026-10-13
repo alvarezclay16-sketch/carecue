@@ -69,4 +69,23 @@ assert.ok(!/clockState \?\? FX_CLOCK/.test(web("app.js")), "a live page never fa
 const html = web("index.html");
 for (const key of ["page.tagline", "page.deviceNote", "phone.title", "phone.adherence", "phone.today", "phone.alerts", "page.tabWire", "tabPhone"]) assert.ok(html.includes(`"${key}"`), `index.html labels ${key}`);
 
+// Replayed non-model steps say "no model"; the who-sees-what view has a title for every tool in both languages; speech synthesis is optional.
+assert.equal(STR.en.replayNoModel, "no model");
+assert.equal(STR.es.replayNoModel, "sin modelo");
+assert.equal(STR.en.wire.replayNoModel, "no model");
+assert.equal(STR.es.wire.replayNoModel, "sin modelo");
+const TOOLS = ["get_today_schedule", "log_dose", "check_what_i_took", "list_medications", "get_refill_status", "record_refill", "notify_caregiver", "record_checkin", "get_adherence", "caregiver_briefing", "add_medication", "stop_medication"];
+const mcpSrc = readFileSync(new URL("../src/mcp.ts", import.meta.url), "utf8");
+for (const name of TOOLS) {
+  assert.ok(mcpSrc.includes(`"${name}"`), `${name} is a real tool`);
+  assert.ok(STR.es.wire.toolTitles[name] && STR.es.wire.toolTitles[name] !== STR.en.wire.toolTitles[name], `ES title for ${name}`);
+  assert.ok(mcpSrc.includes(`title: "${STR.en.wire.toolTitles[name]}"`), `EN title for ${name} matches the server's`);
+}
+assert.ok(web("tour.js").includes("replayNoModel") && web("app.js").includes("replayNoModel") && web("wire.js").includes("replayNoModel"), "tour strip, device badge and wire label append it");
+// The ES phone shows one time format (24 h, two digits), also for the alert timestamps.
+assert.ok(!/toLocaleTimeString\(P\.locale/.test(web("app.js")), "the alert time is not formatted by the browser locale (12 h next to a 24 h timeline)");
+// No bare speechSynthesis (a webview without it must not break the page): every use goes through `synth` or window.speechSynthesis in a try.
+for (const f of ["app.js", "tour.js", "chips.js", "wire.js"]) assert.ok(!/(^|[^.\w])speechSynthesis[.?]/m.test(web(f).replace(/\/\/.*$/gm, "")), `${f}: no bare speechSynthesis`);
+assert.ok(web("app.js").includes('"speechSynthesis" in window'), "app.js guards speechSynthesis");
+
 console.log("I18N CHECKS PASSED");

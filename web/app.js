@@ -7,6 +7,8 @@ import { STR } from "./strings.js";
 
 const $ = (id) => document.getElementById(id);
 const Q = new URLSearchParams(location.search);
+// Some judge browsers and webviews have no speech synthesis (or no recognition): everything else must still work.
+const synth = "speechSynthesis" in window ? window.speechSynthesis : null;
 const conversationId = "kitchen-device";
 const store = {
   get: (k) => { try { return localStorage.getItem(k); } catch { return null; } },
@@ -225,6 +227,16 @@ function fmtTime(hhmm) {
   const s = h < 12 ? "AM" : "PM";
   const h12 = h % 12 === 0 ? 12 : h % 12;
   return m ? `${h12}:${String(m).padStart(2, "0")} ${s}` : `${h12} ${s}`;
+}
+/** The phone's one time format: ES is 24 h with two-digit hours everywhere on it ("06:34", "20:00"), EN is 12 h with AM/PM. */
+const fmtClock = (hhmm) => (lk() === "es" ? String(hhmm).split(":").map((x) => x.padStart(2, "0")).join(":") : fmtTime(hhmm));
+/** The "HH:MM" of an instant in the household's timezone (the page's own when the server reports none). */
+function hhmmAt(iso, timeZone) {
+  try {
+    return new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit", hourCycle: "h23", timeZone: timeZone || undefined }).format(new Date(iso));
+  } catch {
+    return new Date(iso).toTimeString().slice(0, 5);
+  }
 }
 const fmt = (hhmm) => {
   const [h, m] = hhmm.split(":").map(Number);
@@ -472,7 +484,7 @@ function highlightOver(ms, wordTimings) {
 
 // ---------- speech out ----------
 function pickVoice() {
-  const voices = speechSynthesis.getVoices();
+  const voices = synth?.getVoices() ?? [];
   const base = lang.slice(0, 2);
   return (
     voices.find((v) => v.lang === lang && /Samantha|Google|Natural|Premium|Enhanced/i.test(v.name)) ||
@@ -485,8 +497,8 @@ function speak(text, mode = "speaking") {
   // Recording mode: the voice track is produced separately (the recorder calls highlightOver), so stay silent.
   if (window.CARECUE_SILENT) return Promise.resolve();
   return new Promise((resolve) => {
-    if (!("speechSynthesis" in window)) return resolve();
-    speechSynthesis.cancel();
+    if (!synth || typeof SpeechSynthesisUtterance === "undefined") return resolve(); // some webviews have no voice: the captions still show
+    synth.cancel();
     const u = new SpeechSynthesisUtterance(text);
     u.lang = lang;
     u.rate = 0.97;
@@ -496,7 +508,7 @@ function speak(text, mode = "speaking") {
     u.onstart = () => {
       ring(mode);
       // Browsers without word boundaries: spread the highlight over an estimate of the speaking time.
-      setTimeout(() => { if (!sawBoundary && speechSynthesis.speaking) highlightOver(Math.max(1200, text.length * 62)); }, 700);
+      setTimeout(() => { if (!sawBoundary && synth.speaking) highlightOver(Math.max(1200, text.length * 62)); }, 700);
     };
     u.onboundary = (e) => {
       if (e.name && e.name !== "word") return;
@@ -507,7 +519,7 @@ function speak(text, mode = "speaking") {
     };
     const end = () => { ring(""); stopHighlight(); resolve(); };
     u.onend = u.onerror = end;
-    speechSynthesis.speak(u);
+    synth.speak(u);
   });
 }
 
@@ -536,7 +548,7 @@ function listen() {
     setReplyFn(() => T().noMic);
     return;
   }
-  speechSynthesis.cancel();
+  try { synth?.cancel(); } catch {}
   recognizer = new SR();
   recognizer.lang = lang;
   recognizer.interimResults = true;
@@ -657,6 +669,7 @@ const REPLAY_LABEL = STR.en.replay; // the English text (the recorder reads it);
 let restKey = "";
 let restDetail = "";
 let replayOn = false;
+let replayNoModel = false; // the recorded step on screen never involved the model (a set-up or a touch)
 /** The words for a resting reason: a key of strings.js `rest.why` (with a detail for "server"), or a plain text. */
 function restWhy(key, detail) {
   const w = T().rest.why[key];
@@ -678,10 +691,11 @@ function paintReplayBadge() {
   const b = $("replay-badge");
   if (!b) return;
   b.hidden = !replayOn;
-  b.textContent = replayOn ? T().replay : "";
+  b.textContent = replayOn ? T().replay + (replayNoModel ? ` - ${T().replayNoModel}` : "") : "";
 }
-function setReplayBadge(on) {
+function setReplayBadge(on, noModel = false) {
   replayOn = !!on;
+  replayNoModel = replayOn && !!noModel;
   paintReplayBadge();
 }
 
@@ -952,15 +966,15 @@ function renderPhone(state) {
 /** The family phone in the device language: labels, the status words, the times. Server alert messages stay as the server wrote them. */
 function paintPhone(state) {
   const P = T().phone;
-  $("phone-sub").textContent = P.subToday(state.patient, fmtTime(state.clock.time));
+  $("phone-sub").textContent = P.subToday(state.patient, fmtClock(state.clock.time));
   const a = state.adherence.adherence_percent;
   $("adh").textContent = a === null ? "–" : `${a}%`;
   $("refill").textContent = state.refills.filter((r) => r.needs_refill).length;
 
   $("timeline").innerHTML = state.today.all_today
     .map(
-      (x) => `<li><span class="t">${esc(x.time ? fmtTime(x.time) : x.spoken_time)}</span><span>${esc(x.medication)}</span>
-      <span class="badge ${esc(x.status)}">${esc(x.status === "taken" && x.taken_at ? P.taken(fmtTime(x.taken_at)) : (P.status[x.status] ?? x.status))}</span></li>`,
+      (x) => `<li><span class="t">${esc(x.time ? fmtClock(x.time) : x.spoken_time)}</span><span>${esc(x.medication)}</span>
+      <span class="badge ${esc(x.status)}">${esc(x.status === "taken" && x.taken_at ? P.taken(fmtClock(x.taken_at)) : (P.status[x.status] ?? x.status))}</span></li>`,
     )
     .join("");
 
@@ -968,7 +982,7 @@ function paintPhone(state) {
     ? state.alerts
         .map(
           (al) => `<li class="${esc(al.severity)} ${al.acknowledged ? "done" : ""}">${escapeHtml(al.message)}
-          <div class="when">${esc(new Date(al.created_at).toLocaleTimeString(P.locale, { hour: "numeric", minute: "2-digit" }))} · ${esc(P.kind[al.kind] ?? al.kind.replace("_", " "))}${al.acknowledged ? ` · ${esc(P.resolved)}` : ""}</div></li>`,
+          <div class="when">${esc(fmtClock(hhmmAt(al.created_at, state.timezone)))} · ${esc(P.kind[al.kind] ?? al.kind.replace("_", " "))}${al.acknowledged ? ` · ${esc(P.resolved)}` : ""}</div></li>`,
         )
         .join("")
     : `<li class="empty">${esc(P.noAlerts)}</li>`;
@@ -1264,7 +1278,7 @@ $("real-time").addEventListener("click", async () => {
 $("reset").addEventListener("click", async () => {
   await post("/api/reset");
   await post("/api/chat/reset", { conversationId });
-  speechSynthesis.cancel();
+  try { synth?.cancel(); } catch {}
   override = null;
   hintShown = true;
   setUser("");
@@ -1303,7 +1317,7 @@ if (design) document.body.classList.add("design"); // design review (?scene=): j
 if (!SR) $("echo").classList.add("no-mic");
 // Don't replay reminders that fired before the page opened.
 api("/api/events?since=0").then((r) => r.json()).then((ev) => { lastEventId = ev.reduce((m, e) => Math.max(m, e.id), 0); }).catch(() => {});
-speechSynthesis?.getVoices();
+try { synth?.getVoices(); } catch {}
 // Hooks for scripted demo recordings (video/record.mjs) and tests.
 window.carecueDemo = {
   ask, ring, refresh, pollEvents, touch,
@@ -1315,7 +1329,7 @@ window.carecueDemo = {
 // opts.idle: show the first-screen line again (the due reminder), as if the page had just opened. opts.quiet: do not read
 // out the reminders the re-seed just created.
 async function resetView(opts = {}) {
-  try { speechSynthesis.cancel(); } catch {}
+  try { synth?.cancel(); } catch {}
   override = null;
   clearTimeout(overrideTimer);
   hintShown = !!opts.idle;

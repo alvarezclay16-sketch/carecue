@@ -60,7 +60,7 @@ function turnHtml(turn) {
   ].join("");
   const labelText = turn.replay ? "" : turn.labelKind === "touch" ? w.touchLabel : turn.labelKind === "probe" ? w.probeLabel : "";
   const label = turn.replay
-    ? `<p class="turn-label replay">${esc(w.replayLabel)}</p>`
+    ? `<p class="turn-label replay">${esc(w.replayLabel + (turn.tag === "touch" ? ` - ${w.replayNoModel}` : ""))}</p>`
     : labelText
       ? `<p class="turn-label">${esc(labelText)}</p>`
       : "";
@@ -217,7 +217,7 @@ function paintWho() {
   const patient = info.roles.patient;
   const caregiver = info.roles.caregiver;
   const admin = new Set(caregiver.filter((n) => !patient.includes(n)));
-  const toolTitle = (n) => info.tools.find((t) => t.name === n)?.title ?? "";
+  const toolTitle = (n) => w.toolTitles[n] ?? info.tools.find((t) => t.name === n)?.title ?? ""; // the server's titles are English
   const col = (who, role, names) => `<div class="who-col"><h4>${esc(who)} <span>${esc(role)} - ${esc(w.toolsCount(names.length))}</span></h4><ul>${names
     .map((n) => `<li class="${admin.has(n) ? "admin" : ""}"><code>${esc(n)}</code>${admin.has(n) ? ` <span class="scope">care:admin</span>` : ""}<small>${esc(toolTitle(n))}</small></li>`)
     .join("")}</ul></div>`;

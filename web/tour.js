@@ -50,6 +50,7 @@ let currentView = null;
 function modeLabel(view, tr) {
   switch (view.modeKind) {
     case "replay": return ui.t().replay;
+    case "replayNoModel": return `${ui.t().replay} - ${ui.t().replayNoModel}`;
     case "setup": return tr.modeSetup;
     case "touch": return tr.modeTouch;
     case "liverun": return tr.modeLiveRun(view.turns ?? 0);
@@ -68,7 +69,8 @@ function paintStrip(view = currentView) {
     return `<li class="dot-${st}" aria-label="${esc(tr.stepAria(i + 1, tr.status[st] ?? st))}">${i + 1}</li>`;
   }).join("");
   box.innerHTML = `<div class="tour-head"><b>${esc(tr.title)}</b>
-      <span class="tour-mode ${view.modeKind === "replay" ? "replay" : ""}">${esc(modeLabel(view, tr))}</span>
+      <span class="tour-mode ${view.modeKind.startsWith("replay") ? "replay" : ""}">${esc(modeLabel(view, tr))}</span>
+      ${view.langNote ? `<span class="tour-en">${esc(STR.es.tour.inEnglishShort)}</span>` : ""}
       ${view.running ? `<button type="button" id="tour-stop" class="tour-stop">${esc(tr.stop)}</button>` : ""}</div>
     <ol class="tour-dots">${dots}</ol>
     <p class="tour-watch">${esc(view.text(tr))}</p>
@@ -103,7 +105,7 @@ function say(text) { ui.setUser(text); }
 /** Plays one recorded step through the same renderers the live path uses. */
 async function replayStep(step, rec) {
   if (rec.lang) ui.setLang(rec.lang === "es" ? "es-CL" : "en-US"); // a recorded Spanish turn is shown in Spanish
-  ui.setReplayBadge(true);
+  ui.setReplayBadge(true, step.kind !== "say"); // a replayed set-up or touch says "no model" too
   if (step.kind === "setup") {
     ui.setUser("");
     ui.setReply("");
@@ -197,7 +199,7 @@ async function play() {
   if (running) return;
   running = true;
   cancelled = false;
-  try { speechSynthesis.cancel(); } catch {}
+  try { window.speechSynthesis?.cancel(); } catch {}
   for (let i = 0; i < 20 && ui.isBusy(); i++) await new Promise((r) => setTimeout(r, 100)); // a cut-off voice frees the device
   document.body.classList.add("touring");
   setButton(true);
@@ -214,7 +216,7 @@ async function play() {
   const status = STEPS.map(() => "todo");
   const how = []; // per step: live | replay
   const records = [];
-  const kindOf = (step, mode) => (mode === "replay" ? "replay" : step.kind === "say" ? "live" : step.kind);
+  const kindOf = (step, mode) => (mode === "replay" ? (step.kind === "say" ? "replay" : "replayNoModel") : step.kind === "say" ? "live" : step.kind);
   const view = {
     running: true,
     modeKind: serverLive && modelLive ? "live" : "replay",
@@ -259,7 +261,7 @@ async function play() {
           window.carecueWire?.discardFailed(pre.utterances[step.id]); // the failed live entry must not sit next to the replayed one
         } else if (result.fail) serverLive = false;
         mode = "replay"; // this step too, from the recording
-        view.modeKind = "replay";
+        view.modeKind = kindOf(step, "replay");
         note((tr) => `${watch(tr)} ${tr.notAvailable(step.kind, why)}`);
       }
     }

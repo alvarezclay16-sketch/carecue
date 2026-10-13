@@ -211,6 +211,16 @@ const sbB = await newSandbox("morning");
   assert.equal(spanish.lang, "es");
   s = await st(sbA.sandbox_id);
   assert.equal(s.device.language, "es");
+  // A Spanish visitor stays in Spanish: every chip with a spoken line has a Spanish variant (the tour sends no lang and stays English).
+  const runEs = (id: string, lang?: string) => call(`/api/scenario/${id}`, { sb: sbA.sandbox_id, body: lang ? { lang } : {} }).then((r) => r.json);
+  assert.deepEqual(await runEs("hedged", "es").then((r) => [r.lang, r.utterance]), ["es", "Creo que ya me lo tomé, tal vez."]);
+  assert.deepEqual(await runEs("extra", "es").then((r) => [r.lang, r.utterance]), ["es", "Me voy a tomar otra más, por si acaso."]);
+  assert.deepEqual(await runEs("chest", "es").then((r) => [r.lang, r.utterance]), ["es", "No me siento bien. Me duele el pecho."]);
+  assert.deepEqual(await runEs("spanish", "es").then((r) => [r.lang, r.utterance]), ["es", "¿Qué remedio me toca ahora?"]);
+  assert.deepEqual(await runEs("spanish", "en").then((r) => [r.lang, r.utterance]), ["es", "¿Qué remedio me toca ahora?"], "the Spanish chip is Spanish for everyone");
+  assert.deepEqual(await runEs("hedged", "en").then((r) => [r.lang, r.utterance]), ["en", "I think I took it, maybe."]);
+  assert.deepEqual(await runEs("took", "es").then((r) => [r.lang, r.utterance]), ["es", null], "a chip with no line follows the visitor's language");
+  assert.deepEqual(await runEs("hedged").then((r) => [r.lang, r.utterance]), ["en", "I think I took it, maybe."], "no lang (tour, recorder): English");
   assert.equal((await call("/api/scenario/nope", { sb: sbA.sandbox_id, body: {} })).status, 404);
   assert.equal((await call("/api/scenario/extra", { body: {} })).status, 403, "scenarios on the shared demo need a sandbox");
   ok("scenarios: morning/hedged/took/extra/chest/spanish set their state; the extra chip shows STOP and leaves the log unchanged");

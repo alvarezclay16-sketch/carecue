@@ -11,8 +11,10 @@ export type Lang = "en" | "es";
 
 type Scenario = {
   lang: Lang;
-  /** What the chip says to the assistant, if anything. */
+  /** What the chip says to the assistant, if anything (in `lang`). */
   say?: string;
+  /** The same line in Spanish, for a visitor whose page is in Spanish (the tour stays in English and uses `say`). */
+  sayEs?: string;
   /** Re-seeds the household for this scenario. Returns "replay" when it cannot run honestly right now. */
   setup: (patientId: number, nowMin: number) => Promise<void | "replay">;
 };
@@ -28,13 +30,14 @@ const fresh = (lateBy: number) => async (patientId: number, nowMin: number) => {
 export const SCENARIOS: Record<ScenarioId, Scenario> = {
   // Losartan and Metformin were due 3 minutes ago: the reminder scene.
   morning: { lang: "en", setup: fresh(3) },
-  hedged: { lang: "en", say: "I think I took it, maybe.", setup: fresh(3) },
+  hedged: { lang: "en", say: "I think I took it, maybe.", sayEs: "Creo que ya me lo tomé, tal vez.", setup: fresh(3) },
   // Same state; the visitor taps "I took it" (the touch path, no model).
   took: { lang: "en", setup: fresh(3) },
   // Both doses already logged through the real guard, then a request for another one.
   extra: {
     lang: "en",
     say: "I'll take another one, just in case.",
+    sayEs: "Me voy a tomar otra más, por si acaso.",
     setup: async (patientId, nowMin) => {
       await fresh(3)(patientId, nowMin);
       care.logDose(patientId, "all_due", "taken", "");
@@ -49,7 +52,7 @@ export const SCENARIOS: Record<ScenarioId, Scenario> = {
       await fresh(50)(patientId, nowMin);
     },
   },
-  chest: { lang: "en", say: "I don't feel good. I have a pain in my chest.", setup: fresh(3) },
+  chest: { lang: "en", say: "I don't feel good. I have a pain in my chest.", sayEs: "No me siento bien. Me duele el pecho.", setup: fresh(3) },
   spanish: { lang: "es", say: "¿Qué remedio me toca ahora?", setup: fresh(3) },
 };
 
@@ -61,13 +64,16 @@ export function scenarioList() {
 }
 
 /**
- * Re-seeds one household for a scenario. `lang` (when given) only applies to scenarios that say nothing,
- * because the spoken lines are fixed in their own language.
+ * Re-seeds one household for a scenario. `lang` (when given) is the visitor's language: a scenario that says nothing
+ * follows it, one with a Spanish variant says it in Spanish for a Spanish visitor, and the Spanish scenario is always
+ * Spanish. Without `lang` (the tour, the recorder, the tests) the English line is used.
  */
 export async function applyScenario(patientId: number, id: ScenarioId, lang?: Lang, nowMin = nowMinutes()) {
   const s = SCENARIOS[id];
-  const language: Lang = s.say ? s.lang : (lang ?? s.lang);
+  const spanishVisitor = lang === "es" && !!s.sayEs;
+  const language: Lang = spanishVisitor ? "es" : s.say ? s.lang : (lang ?? s.lang);
+  const utterance = spanishVisitor ? s.sayEs! : (s.say ?? null);
   db.prepare("UPDATE patients SET preferred_language = ? WHERE id = ?").run(language, patientId);
   const outcome = await s.setup(patientId, nowMin);
-  return { scenario: id, lang: language, utterance: s.say ?? null, replay: outcome === "replay" };
+  return { scenario: id, lang: language, utterance, replay: outcome === "replay" };
 }
