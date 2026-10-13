@@ -6,7 +6,7 @@
   <title>CareCue · Alexa+ simulator</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
-<body>
+<body class="no-clock">
   <header class="topbar">
     <div class="brand">
       <span class="logo" aria-hidden="true">
@@ -23,17 +23,28 @@
     </div>
   </header>
 
-  <!-- Guided tour: six steps, no microphone, three model turns (hidden with ?clean=1) -->
-  <div id="tourbar" class="tourbar">
-    <button id="tour-play" class="tour-play" type="button">&#9654; Play Rosa's day</button>
-    <p id="tour-hint" class="tour-hint">No microphone needed. Three live model turns; every MCP call shows on the wire.</p>
+  <!-- "Try it in 60 seconds": your own private morning, 5 scenarios, the guided tour (hidden with ?clean=1) -->
+  <section id="tourbar" class="tourbar" aria-labelledby="try60-title">
+    <div class="try60-head">
+      <h2 id="try60-title">Try it in 60 seconds</h2>
+      <span id="sandbox-note" class="try60-note" role="status"></span>
+    </div>
+    <div class="try60-row">
+      <button id="tour-play" class="tour-play" type="button">&#9654; Play Rosa's day</button>
+      <div id="scenario-chips" class="scn-chips" role="group" aria-label="Five scenarios"></div>
+      <button id="start-over" class="start-over" type="button">Start over</button>
+    </div>
+    <p id="tour-hint" class="tour-hint">No microphone needed. Each scenario sets up Rosa's home in your own private copy and costs at most one live model turn; every MCP call shows on the wire.</p>
+    <div id="rest-note" class="rest-note" role="status" hidden></div>
     <div id="tour-strip" class="tour-strip" role="status" aria-live="polite" hidden></div>
-  </div>
+  </section>
 
   <main class="stage">
     <!-- Simulated Alexa+ device (Echo Show style): one scene at a time, drawn from what the server reports -->
     <section class="device" aria-label="Simulated Alexa+ device in Rosa's kitchen">
       <div id="device-label" class="device-label">Rosa's kitchen · Alexa+ (simulated)</div>
+      <div id="replay-badge" class="replay-badge" role="status" hidden></div>
+      <div id="nomic-banner" class="nomic-banner" role="note" hidden></div>
       <div class="bezel">
         <div id="echo" class="echo" data-theme="day" data-scene="ambient" data-zoom="100">
           <div class="top">
@@ -99,6 +110,18 @@
               <div class="stat"><div id="refill" class="stat-num">–</div><div class="stat-lbl">refills needed</div></div>
             </div>
 
+            <section id="week" class="week" aria-labelledby="week-title" hidden>
+              <h3 id="week-title">Last 7 days</h3>
+              <p id="week-sample" class="sample-tag"></p>
+              <div id="week-strip" class="week-strip" role="img" aria-label="Last 7 days of doses"></div>
+              <ul class="week-legend" aria-hidden="true">
+                <li><i class="cell c-taken">&#10003;</i>on time</li>
+                <li><i class="cell c-late">!</i>confirmed late</li>
+                <li><i class="cell c-missed">&times;</i>not confirmed</li>
+              </ul>
+              <ul id="week-callouts" class="callouts"></ul>
+            </section>
+
             <h3>Today</h3>
             <ol id="timeline" class="timeline"></ol>
 
@@ -132,5 +155,6 @@
   <script src="app.js" type="module"></script>
   <script src="wire.js" type="module"></script>
   <script src="tour.js" type="module"></script>
+  <script src="chips.js" type="module"></script>
 </body>
 </html>

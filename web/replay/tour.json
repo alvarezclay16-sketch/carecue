@@ -1,12 +1,12 @@
 {
  "version": 1,
- "recorded_at": "2026-10-13T07:07:22.753Z",
- "note": "A real run of the guided tour 'Play Rosa's day' against a local server with the real agent. Replayed on screen through the same renderers, labelled as a replay.",
+ "recorded_at": "2026-10-13T07:26:00.411Z",
+ "note": "A real run of the guided tour 'Play Rosa's day' and of the Spanish scenario against a local server with the real agent. Replayed on screen through the same renderers, labelled as a replay.",
  "model": {
   "provider": "Claude API",
   "id": "claude-opus-5-5"
  },
- "duration_s": 39,
+ "duration_s": 41,
  "steps": [
   {
    "id": "morning",
@@ -26,8 +26,8 @@
       "instructions": "with breakfast and dinner"
      }
     ],
-    "spoken_time": "4:04 AM",
-    "time": "04:04"
+    "spoken_time": "4:22 AM",
+    "time": "04:22"
    },
    "alert": null
   },
@@ -35,11 +35,11 @@
    "id": "hedged",
    "kind": "say",
    "text": "I think I took it, maybe.",
-   "reply": "Nothing is written down yet, Rosa. Did you take the Losartan, yes or no?",
+   "reply": "I haven't written anything down yet. Did you take your Losartan, yes or no?",
    "response": {
-    "reply": "Nothing is written down yet, Rosa. Did you take the Losartan, yes or no?",
+    "reply": "I haven't written anything down yet. Did you take your Losartan, yes or no?",
     "toolCalls": [],
-    "ms": 2590,
+    "ms": 3028,
     "model": {
      "provider": "Claude API",
      "id": "claude-opus-5-5"
@@ -52,20 +52,20 @@
   {
    "id": "took",
    "kind": "touch",
-   "reply": "Written down: Losartan and Metformin at 4:07 AM.",
+   "reply": "Written down: Losartan and Metformin at 4:25 AM.",
    "response": {
     "result": {
      "ok": true,
-     "message": "Logged: Losartan (4:04 AM) and Metformin (4:04 AM) taken.",
+     "message": "Logged: Losartan (4:22 AM) and Metformin (4:22 AM) taken.",
      "logged": [
       {
        "medication": "Losartan",
-       "time": "04:04",
+       "time": "04:22",
        "status": "taken"
       },
       {
        "medication": "Metformin",
-       "time": "04:04",
+       "time": "04:22",
        "status": "taken"
       }
      ],
@@ -80,19 +80,19 @@
       "note": "tapped on the screen"
      },
      "isError": false,
-     "ms": 7,
+     "ms": 12,
      "result": {
       "ok": true,
-      "message": "Logged: Losartan (4:04 AM) and Metformin (4:04 AM) taken.",
+      "message": "Logged: Losartan (4:22 AM) and Metformin (4:22 AM) taken.",
       "logged": [
        {
         "medication": "Losartan",
-        "time": "04:04",
+        "time": "04:22",
         "status": "taken"
        },
        {
         "medication": "Metformin",
-        "time": "04:04",
+        "time": "04:22",
         "status": "taken"
        }
       ],
@@ -115,7 +115,7 @@
       "Losartan",
       "Metformin"
      ],
-     "at": "04:07"
+     "at": "04:25"
     },
     "ttl_s": 8
    }
@@ -124,22 +124,22 @@
    "id": "extra",
    "kind": "say",
    "text": "I'll take another one, just in case.",
-   "reply": "According to what I have written down, your Losartan and Metformin were already taken this morning, so please don't take another one. I sent Daniel a message.",
+   "reply": "According to what I have written down, your Losartan and Metformin were both taken a few minutes ago, so please don't take another one. I sent Daniel a message.",
    "response": {
-    "reply": "According to what I have written down, your Losartan and Metformin were already taken this morning, so please don't take another one. I sent Daniel a message.",
+    "reply": "According to what I have written down, your Losartan and Metformin were both taken a few minutes ago, so please don't take another one. I sent Daniel a message.",
     "toolCalls": [
      {
       "name": "notify_caregiver",
       "input": {
-       "message": "Rosa says she wants to take another pill \"just in case.\" Her Losartan and Metformin due at 4:04 AM are already recorded as taken at 4:07 AM. I told her not to take another one.",
+       "message": "Rosa said she wants to take another pill \"just in case.\" The log already shows her Losartan and Metformin taken at 4:25 AM, and she was told not to take another one.",
        "kind": "info",
        "severity": "warning"
       },
       "isError": false,
-      "ms": 7,
+      "ms": 8,
       "result": {
        "ok": true,
-       "alert_id": 1,
+       "alert_id": 2,
        "delivered_to": "Daniel (son)",
        "household": {
         "language": "en",
@@ -162,7 +162,7 @@
       "source": "model"
      }
     ],
-    "ms": 3271,
+    "ms": 4182,
     "model": {
      "provider": "Claude API",
      "id": "claude-opus-5-5"
@@ -172,11 +172,11 @@
      "medications": [
       {
        "name": "Losartan",
-       "taken_at": "04:07"
+       "taken_at": "04:25"
       },
       {
        "name": "Metformin",
-       "taken_at": "04:07"
+       "taken_at": "04:25"
       }
      ]
     },
@@ -202,10 +202,10 @@
       "instructions": "with breakfast and dinner"
      }
     ],
-    "spoken_time": "3:17 AM",
-    "time": "03:17"
+    "spoken_time": "3:35 AM",
+    "time": "03:35"
    },
-   "alert": "Rosa hasn't confirmed the 3:17 AM Metformin (850 mg, 1 tablet). It's now 4:07 AM. You may want to give Rosa a call."
+   "alert": "Rosa hasn't confirmed the 3:35 AM Metformin (850 mg, 1 tablet). It's now 4:25 AM. You may want to give Rosa a call."
   },
   {
    "id": "chest",
@@ -218,15 +218,15 @@
      {
       "name": "notify_caregiver",
       "input": {
-       "message": "Rosa says she doesn't feel good and has a pain in her chest. Please call her now and make sure she calls 1 3 1.",
+       "message": "Rosa says she doesn't feel good and has a pain in her chest. Please call her now.",
        "kind": "help",
        "severity": "urgent"
       },
       "isError": false,
-      "ms": 9,
+      "ms": 11,
       "result": {
        "ok": true,
-       "alert_id": 3,
+       "alert_id": 4,
        "delivered_to": "Daniel (son)",
        "household": {
         "language": "en",
@@ -249,7 +249,7 @@
       "source": "model"
      }
     ],
-    "ms": 2485,
+    "ms": 2932,
     "model": {
      "provider": "Claude API",
      "id": "claude-opus-5-5"
@@ -262,6 +262,25 @@
     "ttl_s": 600
    },
    "unchanged": "Dose log unchanged"
+  },
+  {
+   "id": "spanish",
+   "kind": "say",
+   "lang": "es",
+   "text": "¿Qué remedio me toca ahora?",
+   "reply": "Ahora le tocan el Losartan de 50 miligramos y la Metformina de 850 miligramos, una tableta de cada uno. Avíseme cuando se los haya tomado y lo anoto.",
+   "response": {
+    "reply": "Ahora le tocan el Losartan de 50 miligramos y la Metformina de 850 miligramos, una tableta de cada uno. Avíseme cuando se los haya tomado y lo anoto.",
+    "toolCalls": [],
+    "ms": 1975,
+    "model": {
+     "provider": "Claude API",
+     "id": "claude-opus-5-5"
+    },
+    "scene": null,
+    "ttl_s": null
+   },
+   "unchanged": "No tool called - dose log unchanged"
   }
  ]
 }

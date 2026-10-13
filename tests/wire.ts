@@ -96,4 +96,18 @@ assert.equal(tour.match(/\{ id: "\w+", kind: "say"/g)?.length, 3, "exactly three
 assert.equal(tour.match(/\{ id: "\w+", kind: "(setup|touch|say)"/g)?.length, 6, "six steps");
 assert.ok(tour.includes("Replay of a real run"), "replay label");
 
+// The judge-proof page (static checks; the browser checks live in video/judge-check.mjs).
+for (const id of ["scenario-chips", "start-over", "sandbox-note", "rest-note", "replay-badge", "nomic-banner", "week-strip", "week-callouts", "week-sample"]) assert.ok(html.includes(`id="${id}"`), `#${id}`);
+assert.ok(html.includes('<body class="no-clock">'), "the demo bar starts hidden until the server says the clock may move");
+assert.ok(html.includes("Try it in 60 seconds"), "'Try it in 60 seconds' panel");
+assert.ok(app.includes("x-carecue-sandbox") && app.includes("sandbox_expired") && app.includes("clock_control"), "sandbox header, silent re-creation, clock_control");
+assert.ok(app.includes("!SR") && app.includes("no speech recognition") && app.includes("disabled = true"), "typed fallback when SpeechRecognition is missing");
+const chips = web("chips.js");
+for (const id of ["extra", "hedged", "missed", "chest", "spanish"]) assert.ok(chips.includes(`id: "${id}"`), `chip ${id}`);
+assert.ok(chips.includes("STEP_TIMEOUT_MS = 25_000") && chips.includes("playRecorded"), "chips replay when the model cannot be used");
+const replay = JSON.parse(readFileSync(path.join(import.meta.dirname, "..", "web", "replay", "tour.json"), "utf8"));
+assert.equal(replay.version, 1);
+for (const id of ["morning", "hedged", "took", "extra", "missed", "chest", "spanish"]) assert.ok(replay.steps.some((x: { id: string }) => x.id === id), `replay step ${id}`);
+assert.ok(replay.steps.every((x: { replay?: unknown }) => !x.replay), "a recording never contains a replay");
+
 console.log("WIRE CHECKS PASSED");

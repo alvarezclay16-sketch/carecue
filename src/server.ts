@@ -20,7 +20,7 @@ import {
   newPairCode,
   type Link,
 } from "./households.ts";
-import { assertBootSafe, CANNED, describe, evalHookAllowed, gateCreate, gateMcp, gateModelTurn } from "./limits.ts";
+import { assertBootSafe, CANNED, describe, evalHookAllowed, gateCreate, gateMcp, gateModelTurn, isPaused } from "./limits.ts";
 import { atLocal, clockControlEnabled, isShifted, localDate, localTime, now, resetClock, setNow, spokenTime } from "./clock.ts";
 import { speaksSpanish } from "./lang.ts";
 import { clearAllLatches, currentScene, deriveScene } from "./scene.ts";
@@ -46,7 +46,21 @@ app.post("/alexa", ...alexaHandlers());
 
 app.use(express.json({ limit: "100kb" }));
 
-app.get("/health", (_req, res) => res.json({ ok: true }));
+// Health check for the proxy and the tests. `model` names the provider and model that answer (or will answer first).
+app.get("/health", async (_req, res) => {
+  try {
+    res.json({ ok: true, model: (await import("./agent.ts")).modelInfo() });
+  } catch {
+    res.json({ ok: true });
+  }
+});
+
+// Any visit to the demo or a call to /mcp counts as activity: the model warm-up below runs only while someone is around.
+let lastActivity = Date.now();
+app.use((req, _res, next) => {
+  if ((req.path.startsWith("/api/") && req.path !== "/api/limits") || req.path === "/mcp") lastActivity = Date.now();
+  next();
+});
 
 // ---------- MCP ----------
 app.post("/mcp", (req, res) => {
@@ -558,6 +572,16 @@ app.listen(PORT, HOST, () => {
       const m = a.modelStatus().configured;
       console.log(`  Voice agent:     ${m.primary} ${m.model}${m.fallback ? `, failover ${m.fallback.provider} ${m.fallback.model}` : ""}`);
     });
-  if (hasModelCredentials() && process.env.CARECUE_DEMO !== "0")
-    import("./agent.ts").then((a) => a.warmUp(demoPatientId())).catch((e) => console.error("[warm-up]", (e as Error).message));
+  // Keeps the prompt cache warm for the first turn of a visitor: once at boot, then every 4 minutes, but only while there
+  // was activity in the last 30 minutes (an unwatched instance makes no model calls at all) and never when paused.
+  if (hasModelCredentials() && process.env.CARECUE_DEMO !== "0" && process.env.CARECUE_FAKE_AGENT !== "1") {
+    const warm = () =>
+      isPaused() ? undefined : import("./agent.ts").then((a) => a.warmUp(demoPatientId())).catch((e) => console.error("[warm-up]", (e as Error).message));
+    const everyS = Number(process.env.CARECUE_WARMUP_EVERY_S) || 240; // the env names are only for tests
+    const activeS = Number(process.env.CARECUE_WARMUP_ACTIVE_S) || 1800;
+    warm();
+    setInterval(() => {
+      if (Date.now() - lastActivity < activeS * 1000) warm();
+    }, everyS * 1000).unref();
+  }
 });

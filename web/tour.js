@@ -9,7 +9,7 @@ const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 
 const STEP_TIMEOUT_MS = 25_000;
-export const REPLAY_LABEL = "Replay of a real run (the live demo is resting)";
+const REPLAY_LABEL = ui.REPLAY_LABEL ?? "Replay of a real run (the live demo is resting)";
 
 // kind: setup (no model), say (one model turn), touch (MCP log_dose from the button, no model).
 const STEPS = [
@@ -34,28 +34,8 @@ const sleep = (ms) =>
     tick();
   });
 
-// ---------- sandbox (a private household when the shared one may not be reset) ----------
-async function ensureSandbox() {
-  const res = await fetch("/api/sandbox", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ scenario: "morning", lang: "en" }) });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw Object.assign(new Error(data.error ?? `HTTP ${res.status}`), { status: res.status });
-  window.carecueSandbox = data.sandbox_id;
-}
-
-async function scenarioCall(id) {
-  for (let attempt = 0; attempt < 2; attempt++) {
-    const res = await ui.post(`/api/scenario/${id}`, { lang: "en" });
-    const data = await res.json().catch(() => ({}));
-    if (res.ok) return data;
-    if ((res.status === 403 && data.error === "sandbox_required") || (res.status === 404 && data.error === "sandbox_expired")) {
-      window.carecueSandbox = undefined;
-      await ensureSandbox();
-      continue;
-    }
-    throw Object.assign(new Error(data.error ?? `HTTP ${res.status}`), { status: res.status });
-  }
-  throw new Error("could not start a private demo");
-}
+// ---------- the private household (the page makes one on load; ui.scenario recreates it if it expired) ----------
+const scenarioCall = (id) => ui.scenario(id);
 
 const jsonOf = (path) => ui.api(path).then((r) => (r.ok ? r.json() : Promise.reject(Object.assign(new Error(String(r.status)), { status: r.status }))));
 
@@ -100,6 +80,8 @@ function say(text) { ui.setUser(text); }
 
 /** Plays one recorded step through the same renderers the live path uses. */
 async function replayStep(step, rec) {
+  if (rec.lang) ui.setLang(rec.lang === "es" ? "es-CL" : "en-US"); // a recorded Spanish turn is shown in Spanish
+  ui.setReplayBadge(true);
   if (step.kind === "setup") {
     ui.setUser("");
     ui.setReply("");
@@ -132,6 +114,7 @@ async function newestAlert() {
 }
 
 async function liveStep(step, utterances) {
+  ui.setReplayBadge(false);
   if (step.kind === "setup") {
     const r = await scenarioCall(step.id);
     if (r.replay) return { skipped: true, note: "needs time earlier today, skipped" };
@@ -159,6 +142,7 @@ async function liveStep(step, utterances) {
   if (cancelled) return { cancelled: true };
   if (out.aborted) return { fail: "timeout" };
   const r = out.response ?? {};
+  if (!out.response) return { fail: "unreachable" };
   if (out.status >= 400 || r.limited || r.degraded) return { fail: r.limited ? "limited" : r.degraded ? "unavailable" : `HTTP ${out.status}` };
   // The "dose log unchanged" chip is added by the wire view after a state diff; read it back for the record.
   await sleep(600);
@@ -169,19 +153,15 @@ async function liveStep(step, utterances) {
 /** What is usable right now: the server (set-up, touch) and the model (the three spoken turns) are checked apart. */
 async function preflight() {
   const out = { server: false, model: false, why: "", utterances: {} };
+  const u = await ui.usability();
+  out.why = u.why;
+  if (!u.server) return out;
   try {
-    const state = await jsonOf("/api/state");
     const list = await jsonOf("/api/scenarios");
-    out.utterances = Object.fromEntries(list.filter((s) => s.say).map((s) => [s.id, s.say]));
+    out.utterances = Object.fromEntries(list.filter((x) => x.say).map((x) => [x.id, x.say]));
     out.server = true;
     if (!out.utterances.hedged || !out.utterances.extra || !out.utterances.chest) out.why = "scenarios unavailable";
-    else if (!state.model_ready) out.why = "the model is not configured";
-    else {
-      const limits = await ui.api("/api/limits").then((r) => (r.ok ? r.json() : null)).catch(() => null);
-      if (limits?.paused) out.why = "the demo is paused";
-      else if (limits && limits.remaining_turns !== null && limits.remaining_turns < 3) out.why = "this visitor is rate limited";
-      else out.model = true;
-    }
+    else out.model = u.model;
   } catch (err) {
     out.why = `server unavailable (${err.message})`;
   }
@@ -294,8 +274,17 @@ function stop() {
   abort?.abort();
 }
 
+/** Plays one recorded step by id through the same renderers (the scenario chips use this when the model rests). */
+async function playRecorded(id) {
+  const rec = (await loadReplay())?.steps?.find((x) => x.id === id);
+  if (!rec) return null;
+  await replayStep({ kind: rec.kind, dwell: 4500 }, rec);
+  return rec;
+}
+
 $("tour-play")?.addEventListener("click", () => play());
 $("tour-strip")?.addEventListener("click", (e) => { if (e.target.closest("#tour-stop")) stop(); });
 
 // For the recorder (video/record.mjs) and tests: window.carecueTour.play(), .lastRun().
+window.carecueReplay = { load: loadReplay, playRecorded, label: REPLAY_LABEL };
 window.carecueTour = { play, stop, lastRun: () => run, steps: STEPS.map((s) => s.id), isRunning: () => running };
