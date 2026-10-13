@@ -24,67 +24,84 @@
   </header>
 
   <main class="stage">
-    <!-- Simulated Alexa+ device (Echo Show style) -->
+    <!-- Simulated Alexa+ device (Echo Show style): one scene at a time, drawn from what the server reports -->
     <section class="device" aria-label="Simulated Alexa+ device in Rosa's kitchen">
-      <div class="device-label">Rosa's kitchen · Alexa+ (simulated)</div>
-      <div class="screen">
-        <div class="screen-top">
-          <div>
+      <div id="device-label" class="device-label">Rosa's kitchen · Alexa+ (simulated)</div>
+      <div class="bezel">
+        <div id="echo" class="echo" data-theme="day" data-scene="ambient" data-zoom="100">
+          <div class="top">
             <div id="clock" class="clock">--:--</div>
             <div id="date" class="date"></div>
+            <div class="tools">
+              <div class="lang" role="group" aria-label="Speech language">
+                <button data-lang="en-US" class="on" aria-pressed="true">EN</button>
+                <button data-lang="es-CL" aria-pressed="false">ES</button>
+              </div>
+              <button id="aa" class="aa" aria-label="Text size">Aa</button>
+              <button id="theme" class="theme" aria-label="Night mode"></button>
+            </div>
           </div>
-          <div class="lang" role="group" aria-label="Speech language">
-            <button data-lang="en-US" class="on">EN</button>
-            <button data-lang="es-CL">ES</button>
+
+          <div id="scene" class="scene" role="status" aria-live="polite"></div>
+
+          <div id="caption" class="caption" aria-live="polite">
+            <div id="caption-user" class="caption-user"></div>
+            <div id="caption-reply" class="caption-reply"></div>
+          </div>
+
+          <div class="mic-row">
+            <button id="mic" class="mic" aria-label="Talk to CareCue">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v6a3 3 0 0 0 3 3Zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-2.08A7 7 0 0 0 19 12h-2Z" fill="currentColor"/></svg>
+            </button>
+            <form id="type-form" class="type-form">
+              <input id="type-input" aria-label="Type to CareCue" autocomplete="off" />
+            </form>
           </div>
         </div>
-
-        <div id="now-card" class="now-card">
-          <div class="now-label">Next medicine</div>
-          <div id="now-title" class="now-title">Loading…</div>
-          <div id="now-sub" class="now-sub"></div>
-        </div>
-
-        <div id="caption" class="caption" aria-live="polite">
-          <div id="caption-user" class="caption-user"></div>
-          <div id="caption-reply" class="caption-reply">Say “I took my pills” or “Did I take my Losartan?”</div>
-        </div>
-
-        <div class="mic-row">
-          <button id="mic" class="mic" aria-label="Talk to CareCue">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v6a3 3 0 0 0 3 3Zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-2.08A7 7 0 0 0 19 12h-2Z" fill="currentColor"/></svg>
-          </button>
-          <form id="type-form" class="type-form">
-            <input id="type-input" placeholder="…or type here" autocomplete="off" />
-          </form>
-        </div>
+        <div id="ring" class="ring" aria-hidden="true"></div>
       </div>
-      <div id="ring" class="ring" aria-hidden="true"></div>
+      <p class="device-note">The simulated Echo draws each screen from what the server reports (tool results and the dose log), never from the model's words. A tap on a button is written through MCP <code>log_dose</code> with no model involved.</p>
     </section>
 
-    <!-- Caregiver's phone -->
-    <section class="phone" aria-label="Caregiver view on Daniel's phone">
-      <div class="phone-notch"></div>
-      <div class="phone-screen">
-        <div class="phone-head">
-          <div class="phone-title">CareCue · Family</div>
-          <div id="phone-sub" class="phone-sub">Rosa · today</div>
-        </div>
-
-        <div id="toast" class="toast" hidden></div>
-
-        <div class="stats">
-          <div class="stat"><div id="adh" class="stat-num">–</div><div class="stat-lbl">7-day adherence</div></div>
-          <div class="stat"><div id="refill" class="stat-num">–</div><div class="stat-lbl">refills needed</div></div>
-        </div>
-
-        <h3>Today</h3>
-        <ol id="timeline" class="timeline"></ol>
-
-        <h3>Alerts</h3>
-        <ul id="alerts" class="alerts"></ul>
+    <!-- Right column: tabs -->
+    <aside class="side" aria-label="Family phone and protocol view">
+      <div class="tabs" role="tablist" aria-label="Side panel">
+        <button role="tab" id="tab-phone" aria-controls="panel-phone" aria-selected="true" data-tab="phone">Daniel's phone<span class="dot" hidden></span></button>
+        <button role="tab" id="tab-wire" aria-controls="panel-wire" aria-selected="false" tabindex="-1" data-tab="wire">MCP wire</button>
       </div>
-    </section>
+
+      <div role="tabpanel" id="panel-phone" aria-labelledby="tab-phone" class="tabpanel">
+        <section class="phone" aria-label="Caregiver view on Daniel's phone">
+          <div class="phone-notch"></div>
+          <div class="phone-screen">
+            <div class="phone-head">
+              <div class="phone-title">CareCue · Family</div>
+              <div id="phone-sub" class="phone-sub">Rosa · today</div>
+            </div>
+
+            <div id="toast" class="toast" hidden></div>
+
+            <div class="stats">
+              <div class="stat"><div id="adh" class="stat-num">–</div><div class="stat-lbl">7-day adherence</div></div>
+              <div class="stat"><div id="refill" class="stat-num">–</div><div class="stat-lbl">refills needed</div></div>
+            </div>
+
+            <h3>Today</h3>
+            <ol id="timeline" class="timeline"></ol>
+
+            <h3>Alerts</h3>
+            <ul id="alerts" class="alerts"></ul>
+          </div>
+        </section>
+      </div>
+
+      <!-- Filled by the wire view (the protocol on the wire): mount point only. -->
+      <div role="tabpanel" id="panel-wire" aria-labelledby="tab-wire" class="tabpanel" hidden>
+        <div id="wire-mount" class="wire-mount">
+          <p class="wire-empty">The MCP wire view appears here.</p>
+        </div>
+      </div>
+    </aside>
   </main>
 
   <footer class="demo-bar" aria-label="Demo controls">
