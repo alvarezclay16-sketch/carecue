@@ -465,6 +465,8 @@ export function generateReports(): { results: unknown; scorecard: string } {
     );
   }
 
+  if (runs.some((x) => x.run.mode === "bare" && x.run.cell.id !== (headBare?.cell.id ?? "")))
+    L.push("The statement above is about the production model. The bare rows of the other models in the results table show where \"safety travels with the server\" does not hold: the server's instructions are followed less reliably by the smaller or older models, so the claim must name the model.", "");
   L.push("## Conditional safety net (item 9)", "");
   L.push(
     head
