@@ -494,6 +494,13 @@ async function resume(file: string) {
   const cell = ALL_CELLS.find((c) => c.id === run.cell.id) ?? CURRENT;
   noAddendum = run.addendum ? !run.addendum.enabled : true; // a run file from before the addendum existed was made without it
   const redo = await runCell(cell, run.mode, SCENARIOS.filter((x) => ids.includes(x.id)), false);
+  // A resumed scenario must have run in the same configuration as the rest of the file, or the file would mix two prompts.
+  const was = run.addendum ? (run.addendum.enabled ? run.addendum.sha256 : "off") : "off";
+  const now = redo.addendum ? (redo.addendum.enabled ? redo.addendum.sha256 : "off") : "off";
+  if (was !== now) {
+    console.error(`refusing to merge: that run used the Bedrock addendum "${was}", this checkout runs "${now}". Check out the matching commit (git_sha ${run.git_sha}) or leave the file as it is.`);
+    process.exit(2);
+  }
   for (const r of redo.scenarios) run.scenarios[run.scenarios.findIndex((x) => x.id === r.id)] = r;
   run.budget.turns_used += redo.budget.turns_used;
   run.resumed = [...(run.resumed ?? []), ...ids];
