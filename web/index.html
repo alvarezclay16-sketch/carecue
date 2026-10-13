@@ -23,6 +23,13 @@
     </div>
   </header>
 
+  <!-- Guided tour: six steps, no microphone, three model turns (hidden with ?clean=1) -->
+  <div id="tourbar" class="tourbar">
+    <button id="tour-play" class="tour-play" type="button">&#9654; Play Rosa's day</button>
+    <p id="tour-hint" class="tour-hint">No microphone needed. Three live model turns; every MCP call shows on the wire.</p>
+    <div id="tour-strip" class="tour-strip" role="status" aria-live="polite" hidden></div>
+  </div>
+
   <main class="stage">
     <!-- Simulated Alexa+ device (Echo Show style): one scene at a time, drawn from what the server reports -->
     <section class="device" aria-label="Simulated Alexa+ device in Rosa's kitchen">
@@ -47,6 +54,7 @@
           <div id="caption" class="caption" aria-live="polite">
             <div id="caption-user" class="caption-user"></div>
             <div id="caption-reply" class="caption-reply"></div>
+            <div id="last-tool" class="last-tool" hidden></div>
           </div>
 
           <div class="mic-row">
@@ -59,6 +67,11 @@
           </div>
         </div>
         <div id="ring" class="ring" aria-hidden="true"></div>
+      </div>
+      <!-- State-aware "Try saying" chips (hidden with ?clean=1) -->
+      <div id="try" class="try" aria-label="Try saying">
+        <span id="try-label" class="try-label">Try saying</span>
+        <span id="try-chips" class="try-chips"></span>
       </div>
       <p class="device-note">The simulated Echo draws each screen from what the server reports (tool results and the dose log), never from the model's words. A tap on a button is written through MCP <code>log_dose</code> with no model involved.</p>
     </section>
@@ -117,5 +130,7 @@
   </footer>
 
   <script src="app.js" type="module"></script>
+  <script src="wire.js" type="module"></script>
+  <script src="tour.js" type="module"></script>
 </body>
 </html>

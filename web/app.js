@@ -59,6 +59,14 @@ const I18N = {
     noMore: "No more medicine today",
     demoTime: "demo time",
     tabPhone: "Daniel's phone",
+    trySaying: "Try saying",
+    say: {
+      took: "I took my pills",
+      did: (med) => `Did I take my ${med}?`,
+      again: "I'll take another one, just in case",
+      maybe: "I think I took it, maybe",
+      chest: "I have a pain in my chest",
+    },
     fxCaptions: {
       ambient: ["", "Say “I took my pills” or “Did I take my Losartan?”"],
       reminder: ["", "It's 8 AM. Time for your Losartan and Metformin. Have you taken them?"],
@@ -113,6 +121,14 @@ const I18N = {
     noMore: "No hay más medicinas hoy",
     demoTime: "hora de demostración",
     tabPhone: "Teléfono de Daniel",
+    trySaying: "Pruebe decir",
+    say: {
+      took: "Ya tomé mis pastillas",
+      did: (med) => `¿Tomé mi ${med}?`,
+      again: "Voy a tomar otra, por si acaso",
+      maybe: "Creo que la tomé, tal vez",
+      chest: "Tengo dolor en el pecho",
+    },
     fxCaptions: {
       ambient: ["", "Diga “Ya tomé mis pastillas” o “¿Tomé mi Losartan?”"],
       reminder: ["", "Son las 8. Es hora de su Losartan y su Metformin. ¿Ya las tomó?"],
@@ -461,41 +477,56 @@ const api = (path, opts = {}) =>
     ...opts,
     headers: { "content-type": "application/json", ...(window.carecueSandbox ? { "x-carecue-sandbox": window.carecueSandbox } : {}), ...opts.headers },
   });
-const post = (path, body) => api(path, { method: "POST", body: JSON.stringify(body ?? {}) });
+const post = (path, body, extra = {}) => api(path, { method: "POST", body: JSON.stringify(body ?? {}), ...extra });
 const announce = (name, detail) => document.dispatchEvent(new CustomEvent(name, { detail }));
 
 // ---------- agent ----------
+// ask() and touch() return {status, response, reply} so the guided tour can drive them. opts.signal aborts the request;
+// opts.waitSpeech === false returns as soon as the answer is on screen (the tour does not wait for the voice).
 let hintShown = true;
-async function ask(text) {
+async function ask(text, opts = {}) {
   busy = true;
   hintShown = false;
   setUser(text);
   setReply("…");
   ring("thinking");
+  announce("carecue:turn-start", { kind: "chat", text });
+  const out = { status: 0, response: null, reply: "", aborted: false };
   try {
-    const res = await post("/api/chat", { conversationId, text });
+    const res = await post("/api/chat", { conversationId, text }, opts.signal ? { signal: opts.signal } : {});
     const data = await res.json();
     const reply = res.ok ? data.reply : data.error || T().wrong;
+    Object.assign(out, { status: res.status, response: data, reply });
     setReply(reply);
     if (res.ok) showOverride(data.scene, data.ttl_s);
     announce("carecue:turn", { text, status: res.status, response: data });
     refresh();
-    await speak(reply);
-    if (window.CARECUE_SILENT) ring(""); // silent (recording) mode: the recorder sets the speaking light itself
+    if (opts.waitSpeech === false) {
+      busy = false;
+      speak(reply);
+    } else {
+      await speak(reply);
+      if (window.CARECUE_SILENT) ring(""); // silent (recording) mode: the recorder sets the speaking light itself
+    }
   } catch (err) {
-    setReply(T().offline);
+    out.aborted = err?.name === "AbortError";
+    setReply(out.aborted ? "…" : T().offline);
     ring("");
+    announce("carecue:turn-end", { kind: "chat", failed: true });
   } finally {
     busy = false;
   }
+  return out;
 }
 
 // The big buttons. "I took it" goes through MCP log_dose on the server (a TOUCH chip in the wire view): no model.
-async function touch(action) {
-  if (busy) return;
+async function touch(action, opts = {}) {
+  if (busy) return null;
   busy = true;
   document.querySelectorAll("#scene [data-act]").forEach((b) => (b.disabled = true));
   setUser("");
+  announce("carecue:turn-start", { kind: "touch", action });
+  const out = { status: 0, response: null, reply: "" };
   try {
     const res = await post("/api/device/touch", { action });
     const data = await res.json();
@@ -509,16 +540,22 @@ async function touch(action) {
     }
     hintShown = false;
     setReply(reply);
+    Object.assign(out, { status: res.status, response: data, reply });
     announce("carecue:touch", { action, status: res.status, response: data });
     refresh();
-    await speak(reply);
+    if (opts.waitSpeech === false) {
+      busy = false;
+      speak(reply);
+    } else await speak(reply);
   } catch {
     setReply(T().offline);
+    announce("carecue:turn-end", { kind: "touch", failed: true });
   } finally {
     busy = false;
     sceneKey = ""; // re-draw so the buttons are live again
     applyScene();
   }
+  return out;
 }
 
 // ---------- rendering ----------
@@ -529,6 +566,30 @@ function renderDevice(state) {
   paintChrome();
   applyScene();
 }
+
+// ---------- "Try saying" chips: what to say next, from what the server reports ----------
+let tryKey = "";
+function renderTry(state) {
+  const box = $("try-chips");
+  if (!box) return;
+  const t = T().say;
+  const list = [];
+  if (state.today.due_now.length) list.push(t.took);
+  const done = state.today.done_today.filter((d) => d.status === "taken");
+  if (done.length) {
+    list.push(t.did(done[0].medication));
+    list.push(t.again);
+  }
+  list.push(t.maybe, t.chest);
+  const key = JSON.stringify(list) + lang;
+  if (key === tryKey) return;
+  tryKey = key;
+  box.innerHTML = list.map((x) => `<button type="button" class="try-chip" data-say="${esc(x)}">${esc(x)}</button>`).join("");
+}
+$("try-chips")?.addEventListener("click", (e) => {
+  const b = e.target.closest("[data-say]");
+  if (b && !busy && !document.body.classList.contains("touring")) ask(b.dataset.say);
+});
 
 function paintChrome() {
   const c = design ? FX_CLOCK : clockState;
@@ -600,6 +661,7 @@ async function refresh() {
     }
     renderDevice(state);
     renderPhone(state);
+    renderTry(state);
   } catch {
     if (design) { paintChrome(); applyScene(); }
   }
@@ -667,6 +729,7 @@ function paintStatic() {
   paintAa();
   paintTheme();
   paintChrome();
+  if ($("try-label")) $("try-label").textContent = t.trySaying;
   if (hintShown) setReply(t.hint);
 }
 
@@ -740,6 +803,10 @@ document.addEventListener("keydown", (e) => {
     e.preventDefault();
     listen();
   }
+  // X flips between Daniel's phone and the MCP wire (not while typing, not with a modifier key).
+  if (e.key.toLowerCase() === "x" && !e.ctrlKey && !e.metaKey && !e.altKey && !["INPUT", "TEXTAREA"].includes(document.activeElement?.tagName)) {
+    showTab($("panel-wire").hidden ? "wire" : "phone");
+  }
 });
 document.querySelectorAll(".lang button").forEach((b) => b.addEventListener("click", () => setLang(b.dataset.lang)));
 document.querySelectorAll("[data-time]").forEach((b) =>
@@ -784,6 +851,8 @@ function setSceneHook(kind, data, ttl_s) {
   return scene;
 }
 
+if (Q.get("clean") === "1") document.body.classList.add("clean"); // no demo bar, no chips (the recorder)
+if (design) document.body.classList.add("design"); // design review (?scene=): just the device
 if (!SR) $("echo").classList.add("no-mic");
 // Don't replay reminders that fired before the page opened.
 api("/api/events?since=0").then((r) => r.json()).then((ev) => { lastEventId = ev.reduce((m, e) => Math.max(m, e.id), 0); }).catch(() => {});
@@ -795,7 +864,24 @@ window.carecueDemo = {
   highlightOver,
   showTab,
 };
-window.carecueUI = { showTab, wireMount: $("wire-mount"), api, post };
+// Clears what the last turn left on the device (the tour calls this after it re-seeds the household).
+function resetView() {
+  try { speechSynthesis.cancel(); } catch {}
+  override = null;
+  clearTimeout(overrideTimer);
+  hintShown = false;
+  setUser("");
+  setReply("");
+  sceneKey = "";
+  return refresh();
+}
+// What the wire view and the guided tour need from the device (ES modules in separate files).
+window.carecueUI = {
+  showTab, wireMount: $("wire-mount"), api, post,
+  ask, touch, refresh, resetView, setLang, showOverride, setUser, setReply, speak, toast,
+  getLang: () => lang,
+  isBusy: () => busy,
+};
 
 setLang(lang, false);
 if (design) {
@@ -806,6 +892,7 @@ if (design) {
 }
 paintStatic();
 applyScene();
+if (Q.get("wire") === "1") showTab("wire");
 refresh();
 setInterval(refresh, 3000);
 setInterval(pollEvents, 1500);
