@@ -25,6 +25,7 @@ const I18N = {
     label: "Rosa's kitchen · Alexa+ (simulated)",
     hint: "Say “I took my pills” or “Did I take my Losartan?”",
     placeholder: "…or type here",
+    noMicPlaceholder: "No microphone: type here",
     noMic: "Voice input needs Chrome. You can type instead.",
     noMicBanner: "Your browser has no speech recognition: type below or tap a scenario.",
     panel: {
@@ -111,6 +112,7 @@ const I18N = {
     label: "Cocina de Rosa · Alexa+ (simulado)",
     hint: "Diga “Ya tomé mis pastillas” o “¿Tomé mi Losartan?”",
     placeholder: "…o escriba aquí",
+    noMicPlaceholder: "Sin micrófono: escriba aquí",
     noMic: "La voz necesita Chrome. Puede escribir en su lugar.",
     noMicBanner: "Su navegador no tiene reconocimiento de voz: escriba abajo o toque un escenario.",
     panel: {
@@ -669,6 +671,7 @@ const REPLAY_LABEL = STR.en.replay; // the English text (the recorder reads it);
 let restKey = "";
 let restDetail = "";
 let replayOn = false;
+let replayEnglish = false; // an English recording shown to an ES visitor says so
 let replayNoModel = false; // the recorded step on screen never involved the model (a set-up or a touch)
 /** The words for a resting reason: a key of strings.js `rest.why` (with a detail for "server"), or a plain text. */
 function restWhy(key, detail) {
@@ -691,11 +694,23 @@ function paintReplayBadge() {
   const b = $("replay-badge");
   if (!b) return;
   b.hidden = !replayOn;
-  b.textContent = replayOn ? T().replay + (replayNoModel ? ` - ${T().replayNoModel}` : "") : "";
+  const inEn = replayOn && replayEnglish && lang === "es-CL" && !!T().replayInEnglish;
+  // "Replay of a real run" + the parenthesis that says why (the resting note above already says it: laptop heights hide it) + the labels.
+  const [head, ...why] = (replayOn ? T().replay : "").split(" (");
+  b.textContent = head;
+  if (why.length) {
+    const w = document.createElement("span");
+    w.className = "badge-why";
+    w.textContent = ` (${why.join(" (")}`;
+    b.append(w);
+  }
+  if (replayOn) b.append((replayNoModel ? ` - ${T().replayNoModel}` : "") + (inEn ? ` - ${T().replayInEnglish}` : ""));
 }
-function setReplayBadge(on, noModel = false) {
+/** `english`: this recording is English (the tour and the chips only recorded the Spanish scenario in Spanish); an ES visitor is told. */
+function setReplayBadge(on, noModel = false, english = false) {
   replayOn = !!on;
   replayNoModel = replayOn && !!noModel;
+  replayEnglish = replayOn && !!english;
   paintReplayBadge();
 }
 
@@ -1134,7 +1149,7 @@ function idleLine() {
 function paintStatic() {
   const t = T();
   $("echo").lang = lk();
-  $("type-input").placeholder = t.placeholder;
+  $("type-input").placeholder = !SR && !design ? t.noMicPlaceholder : t.placeholder; // no recognition: the box itself says why there is no mic
   $("type-input").setAttribute("aria-label", t.typeLabel);
   $("mic").setAttribute("aria-label", t.micLabel);
   document.querySelector(".lang").setAttribute("aria-label", t.langLabel);
@@ -1344,6 +1359,29 @@ async function resetView(opts = {}) {
   }
   return refresh();
 }
+// Laptop heights (<= 820 px): a long answer must not push the mic and the typing box below the fold. When it would, the echo gets
+// the "tight" class (smaller gaps, no "last tool" chip, a slimmer top row and mic row); the words keep their size. Re-checked
+// whenever the scene, the caption or the size changes.
+const LOW = window.matchMedia("(min-width: 900px) and (max-height: 820px)");
+let fitQueued = false;
+function fitLow() {
+  fitQueued = false;
+  const echo = $("echo");
+  const box = $("type-input");
+  if (!echo || !box) return;
+  echo.classList.remove("tight");
+  if (!LOW.matches || design) return;
+  if (box.getBoundingClientRect().bottom + window.scrollY > window.innerHeight - 12) echo.classList.add("tight");
+}
+function queueFit() {
+  if (fitQueued) return;
+  fitQueued = true;
+  requestAnimationFrame(fitLow);
+}
+new MutationObserver(queueFit).observe($("echo"), { childList: true, characterData: true, subtree: true, attributes: true, attributeFilter: ["data-scene", "data-zoom", "data-theme", "lang", "hidden"] });
+window.addEventListener("resize", queueFit);
+document.fonts?.ready.then(queueFit);
+
 // What the wire view and the guided tour need from the device (ES modules in separate files).
 window.carecueUI = {
   showTab, wireMount: $("wire-mount"), api, post,

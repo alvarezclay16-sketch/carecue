@@ -321,7 +321,11 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .rest-note[hidden] { display: none; }
 .replay-badge { width: fit-content; max-width: 100%; margin: 0; padding: 3px 12px; border: 1px solid var(--warn); border-radius: 999px; color: var(--warn); font-size: 14px; font-weight: 700; overflow-wrap: anywhere; }
 .replay-badge[hidden], .nomic-banner[hidden] { display: none; }
-.nomic-banner { margin: 0 0 10px 6px; padding: 9px 14px; border: 1px solid var(--accent); border-radius: 12px; background: color-mix(in srgb, var(--accent) 12%, transparent); font-size: 14px; line-height: 1.4; }
+/* Lives in the device head row (next to the label and the replay badge), so it never adds a row above the Echo. */
+.nomic-banner { margin: 0; padding: 2px 12px; border: 1px solid var(--accent); border-radius: 999px; background: color-mix(in srgb, var(--accent) 12%, transparent); font-size: 14px; line-height: 1.3; min-width: 0; }
+/* On a laptop-height screen (<= 1100 px) the banner would push the typing box below the fold: the typing box says it itself
+   ("No microphone: type here") and the mic is disabled with a title. The banner stays on phones and on tall screens. */
+@media (min-width: 900px) and (max-height: 1100px) { .nomic-banner { display: none; } }
 body.no-clock .demo-bar { display: none; }
 body.no-clock .stage { padding-bottom: 24px; }
 .tour-play { background: var(--accent); color: #031722; border: 0; border-radius: 12px; padding: 9px 16px; font-weight: 700; font-size: 15px; flex: none; }
@@ -429,6 +433,7 @@ body.design .tourbar, body.design .try { display: none; }
   .stage { padding-top: 8px; }
   .device-head { margin-bottom: 2px; }
   .device-label { line-height: 1.2; }
+  .badge-why { display: none; }
   .topbar { padding-top: 6px; padding-bottom: 6px; }
   .logo, .logo svg { width: 30px; height: 30px; }
   .tourbar { padding-top: 6px; gap: 4px; }
@@ -436,8 +441,10 @@ body.design .tourbar, body.design .try { display: none; }
   .tour-strip { padding-top: 4px; padding-bottom: 4px; }
   .bezel { padding: 8px 8px 4px; border-radius: 22px; }
   .echo { --pad: clamp(12px, 1.5cqw, 20px); gap: 6px; }
-  .echo button { min-height: 64px; }
-  .top { min-height: 64px; }
+  .echo button { min-height: 56px; }
+  .top { min-height: 56px; }
+  .echo .clock { line-height: 1; }
+  .echo .theme svg { width: 40px; height: 40px; }
   .echo .btn { min-height: 72px; }
   .rem-actions { gap: 10px; }
   .dose { font-size: calc(var(--z) * 30px); }
@@ -445,7 +452,6 @@ body.design .tourbar, body.design .try { display: none; }
   .echo .mic { width: 68px; height: 68px; }
   .mic svg { width: 40px; height: 40px; }
   .echo .type-form input { height: 68px; }
-  .nomic-banner { margin-bottom: 6px; padding: 4px 12px; font-size: 13px; line-height: 1.3; }
   /* Long answers (STOP, emergency, a two-medicine reminder) used to push the mic and the typing box below the fold. The text
      tokens that carry words (--fs-s, --fs-m, --fs-l) keep their 36 px floor (tests/contrast.ts); the display sizes, the
      pictures, the buttons and the gaps step down here. */
@@ -460,7 +466,7 @@ body.design .tourbar, body.design .try { display: none; }
   }
   .octa { width: clamp(184px, 20cqw, 270px); }
   .icon { width: clamp(100px, 16cqw, 210px); height: clamp(100px, 16cqw, 210px); }
-  .caption-reply { line-height: 1.16; }
+  .caption-reply { line-height: 1.12; }
   .last-tool { margin-top: 2px; padding: 0 12px; font-size: 16px; line-height: 1.3; }
   /* The Spanish visitor's "the tour plays in English" note folds into the strip's first row. */
   body.touring .tour-lang { display: none; }
@@ -472,4 +478,18 @@ body.design .tourbar, body.design .try { display: none; }
   body.touring .tourbar .tour-strip { flex: 1 1 auto; min-width: 0; }
   .tour-head { flex-wrap: nowrap; }
   .tour-watch { flex-basis: 220px; font-size: 13px; line-height: 1.3; }
+  /* After the tour ends the strip is a one-line summary (all the dots are green and the text says so) so the chips and the Echo stay in view. */
+  body:not(.touring) .tour-dots { display: none; }
+  /* ...and the strip's mode label already says the demo is resting, so the resting note folds away while the strip is up (the replay badge then keeps its reason). */
+  body:not(.touring) .tourbar:has(.tour-strip:not([hidden])) .rest-note { display: none; }
+  body:has(.tour-strip:not([hidden])) .badge-why { display: inline; }
+  /* Added by app.js only when the first screen would still run past the fold. */
+  .echo.tight { gap: 4px; }
+  .echo.tight .last-tool { display: none; }
+  .echo.tight button, .echo.tight .top { min-height: 48px; }
+  .echo.tight .btn { min-height: 64px; }
+  .echo.tight .theme svg { width: 32px; height: 32px; }
+  .echo.tight .mic { width: 60px; height: 60px; }
+  .echo.tight .type-form input { height: 60px; }
+  .echo.tight .caption { gap: 0; min-height: 0; }
 }

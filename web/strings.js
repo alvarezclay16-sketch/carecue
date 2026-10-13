@@ -9,6 +9,7 @@ const sevEs = { urgent: "urgente", warning: "aviso", info: "info" };
 export const STR = {
   en: {
     replay: "Replay of a real run (the live demo is resting)",
+    replayInEnglish: "shown in English", // only for a Spanish visitor tapping a chip whose recording is English
     replayNoModel: "no model", // appended on a replayed step that never involves the model (set-up, touch)
     noRecording: "The live demo is resting and there is no recording of this scenario yet. Press Play Rosa's day instead.",
     page: {
@@ -158,6 +159,7 @@ export const STR = {
   es: {
     replay: "Repetición de una ejecución real (la demo en vivo está descansando)",
     replayNoModel: "sin modelo",
+    replayInEnglish: "se ve en inglés",
     noRecording: "La demo en vivo está descansando y todavía no hay grabación de este escenario. Mejor toque Ver el día de Rosa.",
     page: {
       title: "CareCue · simulador de Alexa+",

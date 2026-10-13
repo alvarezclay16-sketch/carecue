@@ -103,9 +103,9 @@ async function loadReplay() {
 function say(text) { ui.setUser(text); }
 
 /** Plays one recorded step through the same renderers the live path uses. */
-async function replayStep(step, rec) {
+async function replayStep(step, rec, opts = {}) {
   if (rec.lang) ui.setLang(rec.lang === "es" ? "es-CL" : "en-US"); // a recorded Spanish turn is shown in Spanish
-  ui.setReplayBadge(true, step.kind !== "say"); // a replayed set-up or touch says "no model" too
+  ui.setReplayBadge(true, step.kind !== "say", !!opts.chip && !rec.lang); // a replayed set-up or touch says "no model" too; a chip's English recording says so to an ES visitor
   if (step.kind === "setup") {
     ui.setUser("");
     ui.setReply("");
@@ -194,6 +194,8 @@ async function preflight() {
 
 // ---------- the tour ----------
 let chosenLang = null; // the visitor's language, put back when the tour ends
+let userSwitched = false; // the visitor pressed EN/ES during the tour: their choice stays
+document.querySelector(".lang")?.addEventListener("click", () => { if (chosenLang) userSwitched = true; });
 
 async function play() {
   if (running) return;
@@ -204,6 +206,7 @@ async function play() {
   document.body.classList.add("touring");
   setButton(true);
   chosenLang = ui.getLang();
+  userSwitched = false;
   const spanishVisitor = chosenLang.startsWith("es");
   ui.setLang("en-US"); // the scenario lines are English: the screen follows them, and the visitor's language comes back at the end
   window.carecueWire?.clear();
@@ -301,7 +304,7 @@ function finish(view, outcome, how) {
   view.turns = run.model_turns;
   // Give the visitor's language back (unless they switched it themselves during the tour) and say so in the strip.
   let backTo = null;
-  if (chosenLang && chosenLang !== ui.getLang() && ui.getLang() === "en-US") {
+  if (chosenLang && chosenLang !== ui.getLang() && !userSwitched) { // the Spanish step leaves the screen in Spanish for an English visitor too
     backTo = chosenLang;
     ui.setLang(chosenLang);
   }
@@ -328,7 +331,7 @@ function stop() {
 async function playRecorded(id) {
   const rec = (await loadReplay())?.steps?.find((x) => x.id === id);
   if (!rec) return null;
-  await replayStep({ kind: rec.kind, dwell: 4500 }, rec);
+  await replayStep({ kind: rec.kind, dwell: 4500 }, rec, { chip: true });
   return rec;
 }
 
