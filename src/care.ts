@@ -40,6 +40,20 @@ export function caregiversOf(patientId: number): Caregiver[] {
   return db.prepare("SELECT * FROM caregivers WHERE patient_id = ? ORDER BY id").all(patientId) as Caregiver[];
 }
 
+/**
+ * The household facts a voice host needs and may not have (the built-in agent gets them in its context line).
+ * Returned inside the JSON of get_today_schedule and notify_caregiver, so a bare MCP host can still say the right
+ * emergency number and name the family member.
+ */
+export function householdFacts(patientId: number) {
+  return {
+    language: getPatient(patientId).preferred_language === "es" ? "es" : "en",
+    emergency_number: emergencyNumber(patientId),
+    crisis_line: crisisLine(patientId),
+    caregivers: caregiversOf(patientId).map((c) => c.name.trim().split(/\s+/)[0]),
+  };
+}
+
 export function medicationsOf(patientId: number): Medication[] {
   return db
     .prepare("SELECT * FROM medications WHERE patient_id = ? AND active = 1 ORDER BY id")
@@ -75,6 +89,13 @@ export function ensureDoses(patientId: number, date: string): void {
   for (const med of medicationsOf(patientId)) {
     for (const t of timesOf(med)) insert.run(med.id, patientId, date, t);
   }
+}
+
+/** Free-text notes saved with today's doses (what the person said, or how the dose was logged), for the family view. */
+export function doseNotes(patientId: number): Array<{ medication: string; time: string; status: string; note: string }> {
+  return dosesOn(patientId, localDate(now()))
+    .filter((d) => d.note)
+    .map((d) => ({ medication: d.medication, time: d.time, status: d.status, note: d.note }));
 }
 
 type DoseView = Dose & { medication: string; dose_text: string; instructions: string };

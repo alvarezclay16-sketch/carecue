@@ -142,6 +142,12 @@ await post("/api/clock", { time: "07:50" });
 let s = await call("get_today_schedule");
 assert.equal(s.due_now.length, 0);
 assert.equal(s.next_up[0].time, "08:00");
+// A bare MCP host has no context line: the household facts it needs travel in the tool result (additive; the text is unchanged).
+assert.deepEqual(Object.keys(s.household).sort(), ["caregivers", "crisis_line", "emergency_number", "language"]);
+assert.equal(s.household.language, "en");
+assert.equal(s.household.emergency_number, "131", "the demo caregiver has a +56 number: Chile");
+assert.equal(s.household.crisis_line, "*4141");
+assert.deepEqual(s.household.caregivers, ["Daniel"]);
 
 // 8:02 AM — reminder fires for Metformin + Losartan.
 await post("/api/clock", { time: "08:02" });
@@ -198,6 +204,8 @@ console.log("briefing adherence:", brief.adherence_7d);
 
 const urgent = await call("notify_caregiver", { message: "Rosa says she feels dizzy.", severity: "warning", kind: "wellbeing" });
 assert.equal(urgent.ok, true);
+assert.deepEqual(urgent.household.caregivers, ["Daniel"], "notify_caregiver also returns the household facts");
+assert.equal(urgent.household.emergency_number, "131");
 
 await post("/api/reset", {});
 await client.close();

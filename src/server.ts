@@ -6,6 +6,7 @@
 //   /           the simulator itself; /app the mobile web app
 
 import express, { type NextFunction, type Request, type Response } from "express";
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import { handleMcp } from "./mcp.ts";
 import { alexaHandlers } from "./alexa.ts";
@@ -19,7 +20,7 @@ import {
   newPairCode,
   type Link,
 } from "./households.ts";
-import { assertBootSafe, CANNED, describe, gateCreate, gateMcp, gateModelTurn } from "./limits.ts";
+import { assertBootSafe, CANNED, describe, evalHookAllowed, gateCreate, gateMcp, gateModelTurn } from "./limits.ts";
 import { atLocal, isShifted, localDate, localTime, now, resetClock, setNow, spokenTime } from "./clock.ts";
 
 const PORT = Number(process.env.PORT ?? 8787);
@@ -74,6 +75,8 @@ const wantsSpanish = (text: string, patientId: number) =>
  * so the spend guard (src/limits.ts) sees it first. tokenKey: the app token's id, for the per-token cap.
  */
 async function agentReply(req: Request, res: Response, patientId: number, conversationId: string, text: string, tokenKey?: string) {
+  // Bare-client mode (the safety suite): only for a loopback caller on a server started with CARECUE_EVAL=1.
+  const bare = req.body?.mode === "bare" && evalHookAllowed(req);
   if (!text) return void res.status(400).json({ error: "Say something first." });
   const es = wantsSpanish(text, patientId);
   const verdict = gateModelTurn(req, text, tokenKey);
@@ -88,7 +91,7 @@ async function agentReply(req: Request, res: Response, patientId: number, conver
   if (!hasModelCredentials()) return void res.status(503).json({ error: "The voice assistant isn't configured yet." });
   try {
     const { chat } = await import("./agent.ts");
-    res.json(await chat(conversationId, text, patientId));
+    res.json(await chat(conversationId, text, patientId, bare ? { mode: "bare" } : undefined));
   } catch (err) {
     // Never leave a voice device silent: answer with a safe spoken sentence instead of an error body.
     console.error("[agent]", err);
@@ -101,6 +104,31 @@ async function agentReply(req: Request, res: Response, patientId: number, conver
 app.get("/api/model", async (_req, res) => {
   res.set("Cache-Control", "no-store");
   res.json((await import("./agent.ts")).modelStatus());
+});
+
+// The latest committed safety-suite results (docs/safety-results.json), read-only. Numbers shown anywhere come from here.
+app.get("/api/safety", (_req, res) => {
+  res.set("Cache-Control", "no-store");
+  try {
+    res.json(JSON.parse(readFileSync(process.env.CARECUE_SAFETY_RESULTS ?? path.join(import.meta.dirname, "..", "docs", "safety-results.json"), "utf8")));
+  } catch {
+    res.status(404).json({ error: "No safety results have been committed yet. Run npm run safety." });
+  }
+});
+
+// Eval hooks: answer only to a direct loopback caller on a server started with CARECUE_EVAL=1 (never behind the proxy).
+app.post("/api/eval/tick", async (req, res) => {
+  if (!evalHookAllowed(req)) return void res.status(403).json({ error: "Eval hooks are off." });
+  await care.tick();
+  res.json({ ok: true, time: localTime(now()) });
+});
+
+// Sets the clock of an eval server to a fixed time of day, so relative dose times never cross midnight in the middle of a run.
+app.post("/api/eval/clock", (req, res) => {
+  if (!evalHookAllowed(req)) return void res.status(403).json({ error: "Eval hooks are off." });
+  if (typeof req.body?.time !== "string" || !/^\d{2}:\d{2}$/.test(req.body.time)) return void res.status(400).json({ error: "Send {time: 'HH:MM'}." });
+  setNow(atLocal(localDate(now()), req.body.time));
+  res.json({ ok: true, time: localTime(now()) });
 });
 
 app.get("/api/limits", (req, res) => {
@@ -195,6 +223,7 @@ appApi.get(
       })),
       alerts: care.recentAlerts(id, 20),
       checkins: care.recentCheckins(id, 5),
+      dose_notes: care.doseNotes(id),
     });
   }),
 );

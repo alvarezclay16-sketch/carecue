@@ -84,7 +84,7 @@ export function buildServer(householdPatientId?: number, role: Role = "patient")
       inputSchema: { patient_id: patientId },
       annotations: READ,
     },
-    async ({ patient_id }) => json(care.todaySchedule(pid(patient_id))),
+    async ({ patient_id }) => json({ ...care.todaySchedule(pid(patient_id)), household: care.householdFacts(pid(patient_id)) }),
   );
 
   server.registerTool(
@@ -192,7 +192,7 @@ export function buildServer(householdPatientId?: number, role: Role = "patient")
       annotations: MESSAGE,
     },
     async ({ message, severity, kind, patient_id }) =>
-      json(await care.alertCaregivers(pid(patient_id), kind, severity, message)),
+      json({ ...(await care.alertCaregivers(pid(patient_id), kind, severity, message)), household: care.householdFacts(pid(patient_id)) }),
   );
 
   server.registerTool(

@@ -2,7 +2,7 @@
 
 **A voice-first medication companion for older adults, built as an MCP server for Alexa+.**
 
-Grandma doesn't need another app. She needs someone in the kitchen who says *"Rosa, it's time for your Metformin"*, remembers whether she already took it, stops her from taking it twice, and quietly tells her son when a dose goes missing.
+Grandma doesn't need another app. She needs someone in the kitchen who says *"Rosa, it's time for your Metformin"*, remembers whether she already took it, never confirms a second dose and tells her clearly not to take another one, and quietly tells her son when a dose goes missing.
 
 CareCue is that someone. It is a self-hosted [Model Context Protocol](https://modelcontextprotocol.io) server (spec **2025-11-25**, **Streamable HTTP**) that gives Alexa+ the tools to run a household's medication routine by voice, plus a caregiver view for the family.
 
@@ -24,7 +24,7 @@ A voice assistant that is already in the kitchen is the most natural place for t
 | **"I took my pills."** | Logs every dose that is due, decrements the supply, confirms what comes next. |
 | **"Did I take my Losartan?"** | Answers from the dose log, never from memory, with the exact time it was logged. |
 | **"I'll take another one just in case."** | **Double-dose guard:** refuses to log it and tells her clearly not to take another. |
-| **Nobody answers by 8:45 PM** | Dose marked missed; Daniel (her son) gets a push alert: *"Rosa hasn't confirmed the 8 PM Metformin."* |
+| **Nobody answers by 8:45 PM** | Dose marked missed; Daniel (her son) gets an alert in the family app (optional push to his phone): *"Rosa hasn't confirmed the 8 PM Metformin."* |
 | **Late confirmation** | Logs it as late and resolves Daniel's alert automatically. |
 | **4 tablets left** | Refill alert to the family, and *"I picked up 30 more"* adds them back. |
 | **"I feel dizzy."** | Saves a check-in and messages the caregiver; anything that sounds like an emergency → *call emergency services now* + urgent alert. |
@@ -43,7 +43,7 @@ A voice assistant that is already in the kitchen is the most natural place for t
                                      │  Web Speech API)        │                           │                              │
                                      └─────────────────────────┘                           │  scheduler: remind → missed  │
                                                                                            │  → escalate → refill alerts  │
-   ┌────────────────────┐   push (ntfy / webhook)                                          │                              │
+   ┌────────────────────┐   family app (optional push: ntfy / webhook)                     │                              │
    │  Daniel's phone    │ ◀──────────────────────────────────────────────────────────────── │  SQLite (node:sqlite)        │
    │  caregiver view    │                                                                  └──────────────────────────────┘
    └────────────────────┘
@@ -89,6 +89,7 @@ npm test                  # lexicon + trace unit checks, then the end-to-end che
 
 - **MCP endpoint:** `http://localhost:8787/mcp` — point Alexa+ or any MCP client (MCP Inspector, Claude Desktop, Kiro) at it. Set `CARECUE_MCP_TOKEN` to require a bearer token.
 - **Simulator:** open `http://localhost:8787` in Chrome, press the mic (or space bar) and talk. The **demo clock** buttons at the bottom move time to 8:01 AM, 8:50 PM, etc. so the whole day plays out in two minutes.
+- **Safety suite:** `npm run safety` starts its own local server and runs the committed adversarial scenarios against the model in your `.env` (`--cell opus-5-5`, `--mode bare`, `--tag core20`, `--dry` for a no-model check); `npm run safety:matrix` runs every model of the matrix. It needs model credentials, costs a few US dollars per full pass and writes `docs/safety-scorecard.md` and `docs/safety-results.json`.
 - **Real push alerts:** set `CARECUE_ALERT_WEBHOOK=https://ntfy.sh/<your-private-topic>` and install the ntfy app on the caregiver's phone.
 - **Public instance / spend guard:** `CARECUE_PUBLIC=1` turns on `src/limits.ts` for every route that can reach a model (`/api/chat`, `/api/app/chat`), for household creation and for `/mcp`. Over a limit the chat answers `limited: true` with a canned sentence and no model call; emergency text still gets through. Tune with `CARECUE_LIMIT_*` env vars, stop all model traffic with `CARECUE_AGENT_PAUSED=1` or a `data/PAUSE` file, see your own remaining turns at `GET /api/limits`. `CARECUE_EVAL=1` (local safety runs) refuses to boot together with `CARECUE_PUBLIC=1`. Test: `npm run test:limits`.
 
@@ -119,6 +120,7 @@ CareCue stores only what a family enters: first names, medicine names, doses, ti
 - Emergencies use the local number (131 in Chile, 911 in the US), and hopeless talk gets an urgent caregiver alert, a direct safety question and the crisis line (*4141 in Chile, 988 in the US).
 - The **double-dose guard** lives in code, not in the prompt: `log_dose` refuses a second "taken" for a dose that is already taken, and refuses doses more than 60 minutes early.
 - Every caregiver alert is stored and visible; a late confirmation resolves it so families aren't left worrying.
+- The safety rules are tested by a committed adversarial suite, `npm run safety` (agent and bare-client modes, model matrix); results are generated into [`docs/safety-scorecard.md`](docs/safety-scorecard.md) and served at `GET /api/safety`, hazards and mitigations are in [`docs/safety-case.md`](docs/safety-case.md). CareCue is a reminder and a self-reported log, not a medical device.
 - Medication changes (`add_medication`, `stop_medication`) are caregiver-only, enforced by the MCP server: only a caregiver app token lists or can call them (everyone else sees 10 tools, and a direct call gets HTTP 403 `insufficient_scope`). The voice agent also blocks them on its side. Every tool carries MCP annotations (read-only, destructive, idempotent) and a title.
 
 ## Built with

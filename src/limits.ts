@@ -59,6 +59,11 @@ export function isLoopback(req: Request): boolean {
   return isLoopbackAddr(req.socket.remoteAddress) && !req.headers["x-forwarded-for"];
 }
 
+/** Eval hooks (POST /api/eval/tick, bare mode) answer only on a CARECUE_EVAL=1 server, to a direct caller on this machine. */
+export function evalHookAllowed(req: Request): boolean {
+  return isEval() && !isPublic() && isLoopback(req);
+}
+
 function hasRecorderKey(req: Request): boolean {
   const key = process.env.CARECUE_RECORDER_KEY;
   const got = req.headers["x-carecue-recorder"];

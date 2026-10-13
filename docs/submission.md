@@ -15,7 +15,7 @@ CareCue helps an older adult living at home take the right medicine at the right
 - **Double-dose guard** in code: a second "taken" for the same dose is refused with a clear "please don't take another one".
 - Missed dose → after 45 minutes the caregiver gets an alert; a late confirmation resolves it.
 - Refill forecasting and alerts; "I picked up 30 more" adds them back.
-- Safety rules tested over seven QA rounds: a hedged "I think I took it" is never logged; emergencies get the local number (131 in Chile, 911 in the US) and an urgent family alert; hopeless talk gets a direct safety question and the crisis line (*4141 / 988).
+- Safety rules tested over seven manual QA rounds plus a committed adversarial suite (`npm run safety`; scenarios, pass rates and open failures are in `docs/safety-scorecard.md`, hazards in `docs/safety-case.md`): a hedged "I think I took it" is never logged; emergencies get the local number (131 in Chile, 911 in the US) and an urgent family alert; hopeless talk gets a direct safety question and the crisis line (*4141 / 988).
 - "I don't feel well" → check-in + caregiver alert; emergencies → "call emergency services now" + urgent alert.
 - English and Spanish.
 
