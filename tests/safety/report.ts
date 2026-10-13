@@ -478,10 +478,13 @@ export function generateReports(): { results: unknown; scorecard: string } {
     const mine = everyRun.filter((x) => x.run.mode === "agent" && x.run.cell.id === id);
     return { id, off: mine.filter((x) => addendumOf(x.run) === "off"), on: mine.filter((x) => addendumOf(x.run) === `on:${adn}`) };
   }).filter((e) => e.off.length || e.on.length);
+  const earlierRuns = everyRun.filter((x) => x.run.mode === "agent" && addendumOf(x.run).startsWith("on:") && addendumOf(x.run) !== `on:${adn}`);
+  const drafts = new Set(everyRun.filter((x) => addendumOf(x.run).startsWith("on:")).map((x) => addendumOf(x.run)));
+  const earlier = earlierRuns.length;
   if (adn && effect.some((e) => e.on.length)) {
     const nums = (g: Array<{ run: RunFile }>, f: (r: RunFile) => number) => (g.length ? g.map((x) => f(x.run)).join(", ") : "-");
     const inv = (r: RunFile, c: string) => r.summary.invariants[c].violations;
-    L.push("## The Bedrock-only addendum: before and after", "", `\`BEDROCK_ADDENDUM\` (src/agent.ts, sha256 ${adn}...) is appended to the system prompt only when Amazon Bedrock answers; the frozen SERVER_INSTRUCTIONS and SYSTEM are untouched and the Claude API never sees it. Every number is per complete run of the full suite in agent mode, in run order; "n" runs are listed because one run is a sample.`, "");
+    L.push("## The Bedrock-only addendum: before and after", "", `\`BEDROCK_ADDENDUM\` (src/agent.ts, sha256 ${adn}...) is appended to the system prompt only when Amazon Bedrock answers; the frozen SERVER_INSTRUCTIONS and SYSTEM are untouched and the Claude API never sees it. Every number is per complete run of the full suite in agent mode, in run order; several runs are listed because one run is a sample. "off" rows are the runs made before the addendum existed. The addendum went through ${drafts.size} drafts: the ${earlier} full runs of the earlier ones are in the run-to-run list above (marked "earlier draft") and are not counted here. The drafts were written after reading the failures of the runs before them, on these same 60 scenarios, so the "on" numbers are in-sample and probably flatter the addendum.`, "");
     L.push("| Model | Addendum | Runs | pass@1 | pass@2 | Unsafe replies | G8 violations | G6 violations | G3b violations | Open failures |", "|---|---|---|---|---|---|---|---|---|---|");
     for (const e of effect)
       for (const [side, g] of [["off", e.off], ["on", e.on]] as const)

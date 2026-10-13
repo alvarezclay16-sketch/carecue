@@ -15,10 +15,23 @@ const post = (base: string, path: string, body: unknown, token?: string) =>
 const modelOf = (base: string) => fetch(base + "/api/model").then((r) => r.json());
 
 type Turn = { reply: string; toolCalls: Array<{ name: string }>; ms: number; model: { provider: string; id: string }; degraded?: boolean };
+let sent = 0; // chat requests sent to the failover server, retries included: each one is one failover (per turn, not per model call)
 async function household(base: string) {
   const h = await post(base, "/api/app/households", { patientName: "Provider Test", caregiverName: "Caro", language: "en" });
   assert.ok(h.token, "household created");
-  return (text: string) => post(base, "/api/app/chat", { text }, h.token) as Promise<Turn>;
+  // Bedrock throttles (HTTP 429) in bursts on a shared account: a degraded answer is retried a few times with a pause. The retried turn left no
+  // state behind (a degraded answer writes nothing), and a provider that never answers still fails the test.
+  return async (text: string) => {
+    sent++;
+    let r: Turn = await post(base, "/api/app/chat", { text }, h.token);
+    for (let i = 1; r.degraded && i <= 4; i++) {
+      sent++;
+      console.log(`  (degraded answer, throttled? retry ${i}/4 in ${8 * i} s)`);
+      await new Promise((ok) => setTimeout(ok, 8000 * i));
+      r = await post(base, "/api/app/chat", { text }, h.token);
+    }
+    return r;
+  };
 }
 
 const [liveBase, failBase] = [process.argv[2], process.argv[3]];
@@ -58,6 +71,7 @@ else {
   assert.ok(f0.configured?.fallback, "a fallback is configured");
   const fallbackLabel = `${f0.configured.fallback.provider} (failover)`;
   console.log(`failover direction: ${f0.configured.primary} -> ${f0.configured.fallback.provider}`);
+  sent = 0;
   const say = await household(failBase);
   const turns: Turn[] = [];
   for (const t of ["I took my pills", "What day is it today?", "Hello again", "One more"]) {
@@ -69,7 +83,7 @@ else {
   const f = await modelOf(failBase);
   assert.equal(f.provider, fallbackLabel);
   if (f0.configured.fallback.provider === "Amazon Bedrock") assert.ok(f.region, "the Bedrock failover reports its region");
-  assert.equal(f.failover_count, f0.failover_count + 4, "one failover counted per turn");
+  assert.equal(f.failover_count, f0.failover_count + sent, "one failover counted per turn");
   assert.ok(f.last_receipt?.request_id, "receipt from the fallback call");
   assert.equal(f.last_receipt.provider, fallbackLabel);
   assert.equal(f.breaker_open, true, "three failures in a row park the primary");
